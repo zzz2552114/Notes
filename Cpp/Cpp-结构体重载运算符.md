@@ -36,7 +36,14 @@ struct Point {
     Point operator+(const Point& other) const {
         return {x + other.x, y + other.y};
     }
+    Point operator-(const Point& other) const {
+        return {other.x - x, other.y - y};
+    }
 };
+
+
+a - b      
+    
 ```
 
 使用：
@@ -189,7 +196,7 @@ struct Vec2 {
     // 后置 ++：返回值，int 参数只是占位
     Vec2 operator++(int) {
         Vec2 old = *this;
-        ++(*this);
+        old.x++,old.y++;
         return old;
     }
 };
