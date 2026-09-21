@@ -1,12 +1,3 @@
-先把结论说清楚：
-
-> 你代码里的 `inline` 是 C++ 关键字。它不是“必须内联”的命令，而是给编译器的建议，同时也带有链接层面的规则。  
-> 更关键的是：`GetX`、`GetY`、`SetX`、`SetY` 这些函数写在 `class Point { ... }` 内部，它们**本来就是隐式 inline 函数**，即使你把 `inline` 删掉，语义上也一样。显式写 `inline` 主要是表达意图或遵循某种代码风格。
-
-下面细致讲。
-
----
-
 ## 1. `inline` 到底是什么？
 
 `inline` 有两层作用：
@@ -36,18 +27,6 @@ inline int Add(int a, int b) {
 
 就允许在多个翻译单元中出现相同定义，链接器会把它们合并成一个。  
 这是 `inline` 最早、最本质的作用之一：**解决头文件中函数定义的多重定义问题**。
-
-你的类成员函数写在类定义内部：
-
-```cpp
-class Point {
-public:
-    inline int GetX() const { return x_; }
-};
-```
-
-这相当于告诉编译器：“这个函数定义可以出现在多个包含该头文件的 `.cpp` 中，不违反 ODR，也就是不违反单一定义规则。”  
-不过，即使你不写 `inline`，类内定义的成员函数也自动是 inline。所以这里的 `inline` 在链接规则上是多余的。
 
 ---
 
@@ -84,54 +63,6 @@ int x = p.x_;  // 直接访问，甚至进一步优化成读寄存器
 > “编译器大哥，这个函数很短、调用很频繁，你考虑把它直接塞到调用处吧。”
 
 但注意：这只是建议，不是命令。编译器可以接受，也可以拒绝。
-
----
-
-## 2. 为什么你的代码里写了 `inline`？
-
-你的代码：
-
-```cpp
-inline int GetX() const { return x_; }
-inline int GetY() const { return y_; }
-inline void SetX(int x) { x_ = x; }
-inline void SetY(int y) { y_ = y; }
-```
-
-这些函数都在类定义内部。按照 C++ 规则：
-
-> 在类定义内部定义的成员函数，自动是 inline 函数。
-
-所以：
-
-```cpp
-class Point {
-public:
-    int GetX() const { return x_; }
-};
-```
-
-和：
-
-```cpp
-class Point {
-public:
-    inline int GetX() const { return x_; }
-};
-```
-
-在“是不是 inline 函数”这一点上没有区别。
-
-那为什么作者还写 `inline`？
-
-常见原因：
-
-1. 强调这些函数很短，希望编译器内联。
-2. 旧式 C++ 风格，习惯性写上。
-3. 让读代码的人知道：“这是有意设计成适合内联的小函数。”
-4. 某些项目编码规范要求显式写。
-
-但从现代 C++ 角度看，类内定义的 getter/setter 通常不需要显式写 `inline`。
 
 ---
 
@@ -209,31 +140,6 @@ void PrintPoint() const {
 
 ---
 
-## 6. 想让编译器更容易内联，关键是什么？
-
-关键是：**调用点要能看到函数定义**。
-
-你的函数定义在类内部，而类定义通常在头文件里。  
-所有包含这个头文件的 `.cpp` 都能看到函数体，所以编译器有机会内联。
-
-如果函数只在头文件里声明，定义藏在 `.cpp` 里：
-
-```cpp
-// Point.h
-class Point {
-public:
-    int GetX() const;
-};
-
-// Point.cpp
-int Point::GetX() const { return x_; }
-```
-
-那么其他 `.cpp` 调用 `GetX` 时看不到函数体，通常无法内联，除非开启 LTO，也就是链接时优化。  
-所以，对于短小函数，把定义放在头文件/类内，比单纯写 `inline` 更有利于内联。
-
----
-
 ## 7. `inline` 和宏的区别
 
 有人会把 `inline` 和 `#define` 宏混淆。它们完全不同：
@@ -243,38 +149,6 @@ int Point::GetX() const { return x_; }
 - `inline` 由编译器/链接器处理，不是简单复制文本。
 
 所以能用 `inline` 的地方，通常不要用宏。
-
----
-
-## 8. 对你这几个函数的建议
-
-你的代码：
-
-```cpp
-inline int GetX() const { return x_; }
-inline int GetY() const { return y_; }
-inline void SetX(int x) { x_ = x; }
-inline void SetY(int y) { y_ = y; }
-```
-
-可以这样理解：
-
-- 它们非常短，适合内联。
-- 它们写在类内，已经是 inline 函数。
-- 显式 `inline` 可写可不写。
-- 在 `-O2` 下，编译器大概率会把它们内联成直接读写 `x_`、`y_`。
-- 在 `-O0` 下，可能仍然以函数调用形式存在，方便调试。
-
-如果追求现代简洁风格，可以写成：
-
-```cpp
-int GetX() const { return x_; }
-int GetY() const { return y_; }
-void SetX(int x) { x_ = x; }
-void SetY(int y) { y_ = y; }
-```
-
-效果在语义上一样。保留 `inline` 也没错，只是略显冗余。
 
 ---
 

@@ -1214,75 +1214,92 @@ student_id IN (...)
 
 # 随堂解答：集合运算：45~47
 
+**随堂练习 45：用 UNION 得到集合**
 ```sql
-SELECT student_name
+SELECT student_name, age
 FROM students
 WHERE major = 'CS'
 
 UNION
 
-SELECT student_name
+SELECT student_name, age
 FROM students
 WHERE age >= 21;
 ```
-
-`UNION` 自动去重。
-
-如果你写：
-
-```sql
-UNION ALL
-```
-
-就不去重。
+`UNION` 会自动去重。
 
 ---
 
+**随堂练习 45.1：用 UNION ALL**
 ```sql
-SELECT student_name
+SELECT student_name, age
 FROM students
 WHERE major = 'CS'
 
-INTERSECT
+UNION ALL
 
-SELECT student_name
+SELECT student_name, age
 FROM students
-WHERE age >= 20;
+WHERE age >= 21;
 ```
-
-含义：
-
-> 两个结果集的交集。
+观察区别：如果某人（如 Carol，年龄 21，专业 CS）同时满足两个条件，`UNION ALL` 中会看到她的名字出现两次，而 `UNION` 只有一次。
 
 ---
 
+**随堂练习 46：用 INTERSECT**
 ```sql
-SELECT student_name
+SELECT student_id
+FROM enrollments
+WHERE course_id = 1
+
+INTERSECT
+
+SELECT student_id
+FROM enrollments
+WHERE course_id = 3;
+```
+含义：找既存在于“选了课 1 的集合”中，又存在于“选了课 3 的集合”中的 `student_id`。
+
+---
+
+**随堂练习 47：用 EXCEPT 找没选课的人**
+```sql
+SELECT student_id
 FROM students
 
 EXCEPT
 
-SELECT s.student_name
-FROM students AS s
-JOIN enrollments AS e
-    ON e.student_id = s.student_id;
+SELECT student_id
+FROM enrollments;
 ```
+意思：所有学生的 id，减去在选课表里出现过的学生 id，剩下的就是没选过课的人。
 
-意思：
+---
 
-> 所有学生 - 选过课的学生
+**随堂练习 47.1：EXCEPT 结合 ORDER BY**
+```sql
+SELECT student_id, course_id, score
+FROM enrollments
+WHERE score IS NOT NULL
 
-得到没选课的人。
+EXCEPT
+
+SELECT student_id, course_id, score
+FROM enrollments
+WHERE score < 60
+
+ORDER BY score DESC;
+```
+注意：`ORDER BY` 必须写在整个语句的最末尾，作用于最终相减之后的结果。
 
 ---
 
 # 随堂解答：INSERT ... SELECT：48
 
-题目要把 CS 学生复制一份，姓名加 ` Copy`、邮箱加前缀 `copy_`。这里正好用上前面的字符串拼接 `||`。
+**题 48：批量生成测试数据**
 
 ```sql
-INSERT INTO students
-    (student_name, email, age, major)
+INSERT INTO students (student_name, email, age, major)
 SELECT
     student_name || ' Copy',
     'copy_' || email,
@@ -1292,302 +1309,124 @@ FROM students
 WHERE major = 'CS';
 ```
 
-注意：
+**解析**：
+- `SELECT` 选出的列顺序严格对应 `INSERT INTO` 括号中的 `(student_name, email, age, major)`。
+- 我们利用 `||` 拼接符，在源数据的基础上衍生出了不冲突的新名字和新邮箱。
+- 自动避开了唯一约束（email）的冲突，自增 id 由数据库自动接管。
 
-- `SELECT` 出来的列顺序，要和 `INSERT INTO students (...)` 里列的顺序一一对应，类型也要兼容。
-- 没有写 `is_active`，所以用它的 `DEFAULT TRUE`；没有写 `created_at`，所以用 `DEFAULT CURRENT_TIMESTAMP`；`student_id` 是 `GENERATED ... AS IDENTITY`，自动生成。
-- `WHERE major = 'CS'` 决定复制哪些行。
-
-执行完先看一眼：
-
+做完后，可以将其清理掉：
 ```sql
-SELECT *
-FROM students
-WHERE student_name LIKE '% Copy'
-ORDER BY student_id;
+DELETE FROM students WHERE email LIKE 'copy_%';
 ```
-
-观察完后删掉这些临时数据：
-
-```sql
-DELETE FROM students
-WHERE student_name LIKE '% Copy';
-```
-
-结构上要记住的是：`VALUES` 和 `SELECT` 都可以作为 `INSERT` 的数据来源。
-
-```sql
-INSERT INTO table (...)
-VALUES (...);
-```
-
-是“直接给值”；
-
-```sql
-INSERT INTO table (...)
-SELECT ...
-FROM ...;
-```
-
-是“把查询结果塞进去”。
 
 ---
 
-# 随堂解答：CTE：49
+# 随堂解答：CTE（WITH）：49
+
+**题 49：用 CTE 拆解查询**
 
 ```sql
 WITH course_avg AS (
-    SELECT
-        course_id,
-        AVG(score) AS avg_score
+    -- 第一步：专门负责计算每门课的平均分
+    SELECT course_id, AVG(score) AS avg_score
     FROM enrollments
     GROUP BY course_id
 )
-SELECT
-    c.course_name,
-    ca.avg_score
-FROM course_avg AS ca
-JOIN courses AS c
-    ON c.course_id = ca.course_id
+-- 第二步：主查询直接使用上面的虚拟表 course_avg
+SELECT c.course_name, ca.avg_score
+FROM course_avg ca
+JOIN courses c ON ca.course_id = c.course_id
 WHERE ca.avg_score >= 80
 ORDER BY ca.avg_score DESC;
 ```
 
-理解：
-
-```text
-course_avg
-    先算出“每门课的平均分”，并给它起个名字
-
-外层 SELECT
-    直接把 course_avg 当成一张表来查
-```
-
-这和不用 CTE 的写法结果一样：
-
-```sql
-SELECT
-    c.course_name,
-    AVG(e.score) AS avg_score
-FROM courses AS c
-JOIN enrollments AS e
-    ON e.course_id = c.course_id
-GROUP BY c.course_id, c.course_name
-HAVING AVG(e.score) >= 80
-ORDER BY avg_score DESC;
-```
-
-区别只是“分步骤写”还是“一口气写”。查询越长，`WITH` 越能让每一步说得清楚。
+**解析**：
+相较于把聚合逻辑全部揉进 `HAVING` 中，使用 `WITH` 可以让你像搭积木一样，先把一个子模块组装好（`course_avg`），然后通过简单的 `JOIN` 和 `WHERE` 与别的表交互，极大地提升了复杂 SQL 的可维护性。
 
 ---
 
 # 随堂解答：事务：50~51
 
-## DataGrip
-
-打开 Transaction 控制方式后，执行：
+**题 50 / 51：体验 ROLLBACK 和 COMMIT**
 
 ```sql
-BEGIN;
+BEGIN; 
+-- 事务开启，进入保护伞模式
 
-UPDATE students
-SET major = 'Math'
-WHERE student_name = 'Alice';
+UPDATE students SET major = 'Math' WHERE student_name = 'Alice';
 
-SELECT *
-FROM students
-WHERE student_name = 'Alice';
+-- 此时当前窗口能查到已修改，但如果别的同事查数据库，Alice 依然是 CS
+SELECT * FROM students WHERE student_name = 'Alice';
 
-ROLLBACK;
+ROLLBACK; 
+-- 撤销所有修改！此时 Alice 恢复为 CS。
 ```
-
-再：
-
-```sql
-SELECT *
-FROM students
-WHERE student_name = 'Alice';
-```
-
-应该恢复到修改前。
-
-### 如果 DataGrip 看起来没有回滚
-
-检查当前 Data Source / Console 的事务模式。
-
-有些 DataGrip 配置可能使用自动提交（auto-commit）。为了学习事务，确保当前操作确实在同一事务中，并观察 Transaction 控件。
-
----
-
-```sql
-BEGIN;
-
-UPDATE students
-SET major = 'Math'
-WHERE student_name = 'Alice';
-
-COMMIT;
-```
-
-然后：
-
-```sql
-SELECT *
-FROM students
-WHERE student_name = 'Alice';
-```
-
-修改仍然存在。
+如果把最后一句换成 `COMMIT;`，则修改正式落盘，不可撤销。
+*(在 DataGrip 中练习时，请确保关闭了界面上的 Auto-Commit 按钮。)*
 
 ---
 
 # 随堂解答：ALTER / VIEW / INDEX：52~54
 
+**题 52：增加列**
 ```sql
-ALTER TABLE students
-ADD COLUMN phone VARCHAR(20);
+ALTER TABLE students ADD COLUMN phone VARCHAR(20);
 ```
 
-检查：
-
+**题 53：创建视图**
 ```sql
-\d students
-```
-
-psql 中非常直观。
-
-DataGrip 中可以从表结构面板看到新增列，也可以：
-
-```sql
-SELECT *
-FROM students;
-```
-
-确认。
-
----
-
-```sql
-CREATE VIEW active_students AS
-SELECT
-    student_id,
-    student_name,
-    email,
-    age,
-    major
+CREATE VIEW active_students_view AS
+SELECT student_id, student_name, email, major
 FROM students
 WHERE is_active = TRUE;
 ```
+随后测试：`SELECT * FROM active_students_view;`
 
-查询：
-
+**题 54：创建索引与 EXPLAIN**
 ```sql
-SELECT *
-FROM active_students;
+CREATE INDEX idx_students_major ON students(major);
+
+EXPLAIN SELECT * FROM students WHERE major = 'CS';
 ```
-
-理解成：
-
-```text
-视图 = 被命名的查询
-```
-
-初学先不要把它当作“复制出来的一张独立表”。
-
----
-
-```sql
-CREATE INDEX idx_students_major
-ON students(major);
-```
-
-检查：
-
-```sql
-```
-
-在 PostgreSQL 中可以结合：
-
-```sql
-EXPLAIN
-SELECT *
-FROM students
-WHERE major = 'CS';
-```
-
-但注意：
-
-> 小表上，即使你建了索引，也不代表 PostgreSQL 一定选择索引扫描。
-
-优化器会根据数据量、选择性、成本估算等决定访问路径。
-
-所以：
-
-```text
-有索引
-≠
-一定使用索引
-```
+**深度解析**：你在用 `EXPLAIN` 观察时，**极大概率依然看到的是 `Seq Scan` (全表扫描)**，并没有看到期望的 `Index Scan`。
+为什么？因为优化器极其聪明。它发现 `students` 表总共才 10 来条数据，把这 10 条数据全读出来筛选，其开销远远小于“先去读一次索引树，再根据索引里的指针跳回去读原表”的开销。索引是为百万级数据准备的，数据太少时优化器会主动弃用它！
 
 ---
 
 # 随堂解答：窗口函数：55
 
-要求：
-
-> 每条选课记录继续保留，同时显示这门课的平均分。
-
-答案：
-
+**题 55：保留明细并附加整体平均分**
 ```sql
-SELECT
-    e.student_id,
-    e.course_id,
-    e.score,
-    AVG(e.score) OVER (
-        PARTITION BY e.course_id
-    ) AS course_avg
-FROM enrollments AS e
-ORDER BY e.course_id, e.student_id;
+SELECT 
+    student_id, 
+    course_id, 
+    score,
+    AVG(score) OVER (PARTITION BY course_id) AS course_avg
+FROM enrollments;
 ```
+**解析**：
+如果没有 `OVER`，单独写 `AVG(score)` 数据库会逼着你加上 `GROUP BY course_id`，从而导致每门课只剩下一行。用了窗口函数，原来的选课行一行没少，只是多出了一列该课的全局平均分，这就是窗口函数的魔力。
 
-理解：
-
-```text
-GROUP BY
-    每门课变成一行
-
-窗口函数
-    每条选课记录都保留
-    只是额外算一个“这门课平均分”
+**题 55.1：分组排名**
+```sql
+SELECT 
+    student_id, 
+    course_id, 
+    score,
+    ROW_NUMBER() OVER (PARTITION BY course_id ORDER BY score DESC) AS rank_in_course
+FROM enrollments
+WHERE score IS NOT NULL;
 ```
-
-这就是窗口函数最核心的感觉。
+**解析**：
+在每门课内部（`PARTITION BY course_id`），按照成绩从高到底（`ORDER BY score DESC`）排定名次（`ROW_NUMBER()`）。这是报表统计极其常用的“组内 Top N”写法。
 
 ---
 
 # 随堂解答：终极综合：56
 
-要求：
+**题 56：全方位实战终极报表**
 
-```text
-学生姓名
-专业
-选课数量
-平均成绩
-```
-
-且：
-
-```text
-没选课的学生也要出现
-NULL 成绩不能当成 0
-平均分从高到低
-平均分相同按名字升序
-0 门课的人平均分显示 NULL
-```
-
-答案：
+这道题是检验你是否真正出师的试金石。
 
 ```sql
 SELECT
@@ -1595,9 +1434,9 @@ SELECT
     s.major,
     COUNT(e.course_id) AS course_count,
     AVG(e.score) AS avg_score
-FROM students AS s
-LEFT JOIN enrollments AS e
-    ON e.student_id = s.student_id
+FROM students s
+LEFT JOIN enrollments e 
+    ON s.student_id = e.student_id
 GROUP BY
     s.student_id,
     s.student_name,
@@ -1607,111 +1446,11 @@ ORDER BY
     s.student_name ASC;
 ```
 
-如果你希望主线尽量不依赖 PostgreSQL 对 NULL 排序位置的扩展写法，可以先写：
+**终极解析**：
+1. **为什么要用 `LEFT JOIN`？** 题目要求没选课的人也要出现。如果你用默认的 `JOIN` (INNER JOIN)，连不上 `enrollments` 的学生（比如 David）会被直接抛弃。
+2. **为什么写 `COUNT(e.course_id)` 而不是 `COUNT(*)`？** 对于没选课的 David，他连上表后，右边补充的都是 NULL。如果你用 `COUNT(*)`，数据库会认为 David 这行真实存在，结果返回 1；而 `COUNT(列名)` 只会统计非 NULL 的记录，正确返回 0！
+3. **AVG() 会不会把未出分算作 0 分？** 不会，SQL 的 `AVG` 原生就会忽略 NULL 进行计算。
+4. **`GROUP BY` 的列**：虽然业务上是按学生分组，但严谨起见，不仅要放 `student_id`，也要把 `SELECT` 里所有没用聚合函数的字段都放在 `GROUP BY` 里，这是标准规范。
+5. **`NULLS LAST`**：在 PostgreSQL 中，排序时可以将 NULL 指定推到最后。如果不写，默认 `DESC` 排序时 NULL 会跑到第一排。
 
-```sql
-ORDER BY
-    avg_score DESC,
-    s.student_name ASC;
-```
-
-然后再单独学习：
-
-```sql
-NULLS LAST
-```
-
-这是 PostgreSQL 很方便的排序控制功能。
-
----
-
-# 附：题 50 / 51 的 psql 写法
-
-```sql
-BEGIN;
-
-UPDATE students
-SET major = 'Math'
-WHERE student_name = 'Alice';
-
-SELECT *
-FROM students
-WHERE student_name = 'Alice';
-
-ROLLBACK;
-```
-
-或者：
-
-```sql
-BEGIN;
-
-UPDATE students
-SET major = 'Math'
-WHERE student_name = 'Alice';
-
-COMMIT;
-```
-
-在 psql 中，事务完全由 SQL 控制。
-
----
-
-# DataGrip / psql 小抄
-
-## DataGrip
-
-```text
-Data Source
-   ↓
-Database
-   ↓
-Query Console
-   ↓
-执行 SQL
-   ↓
-观察结果
-```
-
-你可以把每阶段 SQL 保存成：
-
-```text
-01_create.sql
-02_insert.sql
-03_select.sql
-04_update_delete.sql
-05_join.sql
-06_group.sql
-07_subquery.sql
-08_set_operation.sql
-09_transaction.sql
-10_view_index_window.sql
-```
-
-## psql
-
-执行一个脚本：
-
-```sql
-\i 01_create.sql
-```
-
-或者在 shell：
-
-```bash
-psql -U postgres -d sql_learning -f 01_create.sql
-```
-
-普通 SQL：
-
-```sql
-SELECT ...
-INSERT ...
-UPDATE ...
-DELETE ...
-BEGIN;
-COMMIT;
-ROLLBACK;
-```
-
-在 DataGrip 与 psql 中都是同一套 SQL。
+如果你自己思考并独立写出了这段代码，恭喜你，你的 SQL 基础已经非常扎实，完全具备应对真实业务开发中多数 CRUD 报表查询的能力！
