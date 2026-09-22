@@ -2616,18 +2616,22 @@ EXCEPT     差集
 ## 1. UNION 与 UNION ALL（并集）
 
 **作用**：将两个查询的结果合并到一起。
+
 - `UNION`：合并后会**自动去除重复行**。
 - `UNION ALL`：合并后**保留所有重复行**。
 
 **常用情境**：
+
 - 需要从多个结构相似的表中汇总数据（比如今年的订单表 `orders_2023` 和去年的订单表 `orders_2022` 汇总）。
 - 当一个非常复杂的 `OR` 逻辑导致索引失效或者难以阅读时，可以拆分成两个单独的 `SELECT` 再 `UNION` 起来。
 
 **注意事项**：
+
 - `UNION` 在后台需要进行一次全局去重（通常是通过排序或哈希），非常耗费性能。
 - **最佳实践**：如果你在逻辑上能确定两个结果集肯定没有交集，或者你不在乎重复数据，**请永远优先使用 `UNION ALL`**。只有当你明确需要去重时，才使用 `UNION`。
 
 **示例**：
+
 ```sql
 SELECT student_name FROM students WHERE major = 'CS'
 UNION
@@ -2642,14 +2646,17 @@ SELECT student_name FROM students WHERE age >= 20;
 **作用**：提取两个查询结果中**都存在**的行。也就是“取共同点”。
 
 **常用情境**：
+
 - 寻找同时满足两个复杂条件的数据集合。
 - 比较两个表的数据差异，找出共同拥有的人或记录（例如：购买了商品 A 且同时购买了商品 B 的用户）。
 
 **注意事项**：
+
 - 很多时候 `INTERSECT` 可以被 `INNER JOIN` 或 `EXISTS` 子查询替代。但是当你要比较整个结果集的多列内容时，`INTERSECT` 写起来更直观。
 - `INTERSECT` 也会自动去重。
 
 **示例**：
+
 ```sql
 -- 既是 CS 专业，又是年龄 >= 20 的学生
 SELECT student_name FROM students WHERE major = 'CS'
@@ -2666,6 +2673,7 @@ SELECT student_name FROM students WHERE age >= 20;
 **作用**：从第一个查询结果中，**减去**第二个查询结果中也存在的行。即“只在左边，不在右边”。
 
 **常用情境**：
+
 - 找出某种“缺失”：比如所有学生减去已经选课的学生，剩下的就是没选课的学生。
 - 排除特定条件的数据：查询某类群体，但要从中剔除掉另一个复杂查询算出来的群体。
 
@@ -2674,6 +2682,7 @@ SELECT student_name FROM students WHERE age >= 20;
 - `EXCEPT` 也可以用 `LEFT JOIN ... WHERE right_table.id IS NULL` 或 `NOT EXISTS` 替代，但在表达“全表差异”时 `EXCEPT` 非常直观。
 
 **示例**：
+
 ```sql
 -- 所有 CS 学生，排除掉年龄大于 21 岁的，剩下的 CS 学生
 SELECT student_name FROM students WHERE major = 'CS'
