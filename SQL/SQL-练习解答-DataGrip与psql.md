@@ -70,7 +70,7 @@ psql -U postgres
 
 ---
 
-# 随堂解答：建库 / 建表 / 插入：1~7
+# 随堂解答：建库 / 建表 / 插入
 
 **题 1：创建数据库**
 
@@ -373,8 +373,9 @@ ORDER BY student_id, course_id;
 
 ---
 
-# 随堂解答：查询基础：8~18
+# 随堂解答：查询基础
 
+**题 8：查询所有学生**
 ```sql
 SELECT *
 FROM students;
@@ -389,6 +390,7 @@ FROM students → 从 students 找
 
 ---
 
+**题 9：只查询姓名、年龄、专业**
 ```sql
 SELECT
     student_name,
@@ -399,6 +401,7 @@ FROM students;
 
 ---
 
+**题 10：查询年龄 >= 20 的学生**
 ```sql
 SELECT *
 FROM students
@@ -419,6 +422,7 @@ age >= 20
 
 ---
 
+**题 11：查询 CS 专业且年龄 >= 20 的学生**
 ```sql
 SELECT *
 FROM students
@@ -442,6 +446,7 @@ WHERE 条件1 AND 条件2
 
 ---
 
+**题 12：查询年龄在 19 到 21 之间的学生**
 ```sql
 SELECT *
 FROM students
@@ -457,6 +462,7 @@ WHERE age >= 19
 
 ---
 
+**题 13：查询年龄为 19, 20, 22 的学生**
 ```sql
 SELECT *
 FROM students
@@ -473,6 +479,7 @@ WHERE age = 19 OR 20 OR 22
 
 ---
 
+**题 14：查询名字包含 a 的学生**
 ```sql
 SELECT *
 FROM students
@@ -497,6 +504,7 @@ WHERE student_name LIKE '%a%';
 
 ---
 
+**题 15：按年龄降序、姓名升序排列**
 ```sql
 SELECT *
 FROM students
@@ -512,6 +520,7 @@ ORDER BY
 
 ---
 
+**题 16：查询年龄最大的 3 个学生**
 ```sql
 SELECT *
 FROM students
@@ -529,6 +538,7 @@ LIMIT 3 OFFSET 3
 
 ---
 
+**题 17：查询有哪些不同的专业**
 ```sql
 SELECT DISTINCT major
 FROM students;
@@ -544,6 +554,7 @@ NULL
 
 ---
 
+**题 18：查询年龄未知 (NULL) 的学生**
 ```sql
 SELECT *
 FROM students
@@ -558,8 +569,9 @@ WHERE age = NULL;
 
 ---
 
-# 随堂解答：表达式 / CASE / COALESCE：19~21
+# 随堂解答：表达式 / CASE / COALESCE
 
+**题 19：查询明年年龄**
 ```sql
 SELECT
     student_name,
@@ -592,6 +604,7 @@ NULL + 1
 
 ---
 
+**题 20：使用 CASE 判断成年**
 ```sql
 SELECT
     student_name,
@@ -618,6 +631,7 @@ minor
 
 ---
 
+**题 21：处理 NULL 缺省值**
 ```sql
 SELECT
     student_name,
@@ -641,8 +655,9 @@ Unknown
 
 ---
 
-# 随堂解答：UPDATE / DELETE：22~25
+# 随堂解答：UPDATE / DELETE
 
+**题 22：将 Bob 改为 CS 专业**
 ```sql
 UPDATE students
 SET major = 'CS'
@@ -665,6 +680,7 @@ WHERE student_name = 'Bob';
 
 先看范围：
 
+**题 23：给所有 CS 学生长一岁**
 ```sql
 SELECT student_id, student_name, age
 FROM students
@@ -690,6 +706,7 @@ UPDATE 再真正修改
 
 ---
 
+**题 24：激活 Eve 的账号**
 ```sql
 UPDATE students
 SET is_active = TRUE
@@ -697,6 +714,8 @@ WHERE student_name = 'Eve';
 ```
 
 ---
+
+**题 25：删除 Frank 的 Calculus 选课**
 
 这一题先用“学到哪儿，就用哪儿”的方法做：分别查出两个 id。
 
@@ -741,7 +760,7 @@ WHERE student_id = 6
 
 ---
 
-# 随堂解答：约束错误实验：26~27
+# 随堂解答：约束错误实验
 
 ### 1. UNIQUE（题 26）
 
@@ -814,8 +833,10 @@ REFERENCES students(student_id)
 
 ---
 
-# 随堂解答：JOIN：28~33
+# 随堂解答：JOIN
 
+**题 28：INNER JOIN 三表查询**
+**题 33：查找高分成绩单**
 ```sql
 SELECT
     s.student_name,
@@ -846,6 +867,7 @@ courses
 
 ---
 
+**题 29：查询附加 department**
 ```sql
 SELECT
     s.student_name,
@@ -861,6 +883,7 @@ JOIN courses AS c
 
 ---
 
+**题 30：LEFT JOIN 包含未选课学生**
 ```sql
 SELECT
     s.student_name,
@@ -946,7 +969,7 @@ ORDER BY e.score DESC;
 
 ---
 
-# 随堂解答：聚合 / GROUP BY / HAVING：34~40
+# 随堂解答：聚合 / GROUP BY / HAVING
 
 ```sql
 SELECT COUNT(*) AS student_count
@@ -1120,7 +1143,7 @@ ORDER BY course_count DESC;
 
 ---
 
-# 随堂解答：子查询 / EXISTS：41~44
+# 随堂解答：子查询 / EXISTS
 
 ```sql
 SELECT
@@ -1212,7 +1235,7 @@ student_id IN (...)
 
 ---
 
-# 随堂解答：集合运算：45~47
+# 随堂解答：集合运算
 
 **随堂练习 45：用 UNION 得到集合**
 ```sql
@@ -1230,7 +1253,7 @@ WHERE age >= 21;
 
 ---
 
-**随堂练习 45.1：用 UNION ALL**
+**随堂练习 46：用 UNION ALL**
 ```sql
 SELECT student_name, age
 FROM students
@@ -1246,7 +1269,7 @@ WHERE age >= 21;
 
 ---
 
-**随堂练习 46：用 INTERSECT**
+**随堂练习 47：用 INTERSECT**
 ```sql
 SELECT student_id
 FROM enrollments
@@ -1262,7 +1285,7 @@ WHERE course_id = 3;
 
 ---
 
-**随堂练习 47：用 EXCEPT 找没选课的人**
+**随堂练习 48：用 EXCEPT 找没选课的人**
 ```sql
 SELECT student_id
 FROM students
@@ -1276,7 +1299,7 @@ FROM enrollments;
 
 ---
 
-**随堂练习 47.1：EXCEPT 结合 ORDER BY**
+**随堂练习 49：EXCEPT 结合 ORDER BY**
 ```sql
 SELECT student_id, course_id, score
 FROM enrollments
@@ -1296,7 +1319,7 @@ ORDER BY score DESC;
 
 # 随堂解答：INSERT ... SELECT：48
 
-**题 48：批量生成测试数据**
+**题 50：批量生成测试数据**
 
 ```sql
 INSERT INTO students (student_name, email, age, major)
@@ -1321,9 +1344,9 @@ DELETE FROM students WHERE email LIKE 'copy_%';
 
 ---
 
-# 随堂解答：CTE（WITH）：49
+# 随堂解答：CTE（WITH）：49 及其衍生练习
 
-**题 49：用 CTE 拆解查询**
+**题 51：用 CTE 拆解查询（单层）**
 
 ```sql
 WITH course_avg AS (
@@ -1339,41 +1362,102 @@ JOIN courses c ON ca.course_id = c.course_id
 WHERE ca.avg_score >= 80
 ORDER BY ca.avg_score DESC;
 ```
-
 **解析**：
 相较于把聚合逻辑全部揉进 `HAVING` 中，使用 `WITH` 可以让你像搭积木一样，先把一个子模块组装好（`course_avg`），然后通过简单的 `JOIN` 和 `WHERE` 与别的表交互，极大地提升了复杂 SQL 的可维护性。
 
 ---
 
-# 随堂解答：事务：50~51
+**题 52：多层 CTE 的递进调用**
 
-**题 50 / 51：体验 ROLLBACK 和 COMMIT**
+我们要找出选修了 "Database Systems" 并且成绩高于该门课平均分的学生姓名。
 
 ```sql
-BEGIN; 
--- 事务开启，进入保护伞模式
-
-UPDATE students SET major = 'Math' WHERE student_name = 'Alice';
-
--- 此时当前窗口能查到已修改，但如果别的同事查数据库，Alice 依然是 CS
-SELECT * FROM students WHERE student_name = 'Alice';
-
-ROLLBACK; 
--- 撤销所有修改！此时 Alice 恢复为 CS。
+WITH db_course AS (
+    -- 1. 找出这门课的 id
+    SELECT course_id 
+    FROM courses 
+    WHERE course_name = 'Database Systems'
+),
+db_avg AS (
+    -- 2. 利用上一个 CTE 找出这门课的平均分
+    SELECT AVG(score) AS avg_score
+    FROM enrollments
+    WHERE course_id = (SELECT course_id FROM db_course)
+)
+-- 3. 主查询：找出在这门课中得分比 db_avg 高的学生
+SELECT s.student_name
+FROM enrollments e
+JOIN students s ON e.student_id = s.student_id
+WHERE e.course_id = (SELECT course_id FROM db_course)
+  AND e.score > (SELECT avg_score FROM db_avg);
 ```
-如果把最后一句换成 `COMMIT;`，则修改正式落盘，不可撤销。
-*(在 DataGrip 中练习时，请确保关闭了界面上的 Auto-Commit 按钮。)*
+**解析**：
+通过两个 CTE `db_course` 和 `db_avg`，我们将复杂的参数计算完全抽离出来了，最后的主查询只需要用非常直白的大于号，就能明白我们要过滤什么。这展示了多个 CTE 是如何配合降低心智负担的。
 
 ---
 
-# 随堂解答：ALTER / VIEW / INDEX：52~54
+# 随堂解答：事务（BEGIN / COMMIT / ROLLBACK）
 
-**题 52：增加列**
+**题 50 / 51：体验 ROLLBACK 和 COMMIT 的反悔与确认**
+
+```sql
+BEGIN; 
+-- 事务开启，进入保护伞模式。接下来所有的增删改操作都不对外公开。
+
+UPDATE students SET major = 'Math' WHERE student_name = 'Alice';
+
+-- 此时当前窗口能查到已修改，但如果别的同事另开一个窗口查，Alice 依然是 CS
+SELECT * FROM students WHERE student_name = 'Alice';
+
+ROLLBACK; 
+-- 发现改错了，大喊撤销所有修改！此时 Alice 恢复为 CS。
+```
+如果你把最后一句换成 `COMMIT;`，则修改正式落盘存入硬盘，变为不可撤销。
+*(在 DataGrip/DBeaver 中练习时，请确保**关闭了界面上的 Auto-Commit 按钮**，或者明确执行 `BEGIN;`)*
+
+---
+
+**题 55：复杂的联合更改与撤销**
+
+```sql
+BEGIN;
+
+-- 1. 删除 Frank (student_id = 6) 的选课记录
+DELETE FROM enrollments WHERE student_id = 6;
+
+-- 2. 删除 Frank 的学籍档案
+DELETE FROM students WHERE student_id = 6;
+
+-- 假如此时确认没问题，执行 COMMIT; 会永远删掉他。
+-- 但题目说领导后悔了，要求恢复：
+ROLLBACK;
+
+-- 验证恢复成功：
+SELECT * FROM students WHERE student_id = 6;
+SELECT * FROM enrollments WHERE student_id = 6;
+```
+**解析**：这是一个典型的父子表级联删除操作，必须由事务包装。有了 `ROLLBACK`，即使删除了两条极其危险的数据，也可以毫发无损地回退。
+
+---
+
+# 随堂解答：ALTER TABLE 与 VIEW
+
+**题 56：增加新列**
 ```sql
 ALTER TABLE students ADD COLUMN phone VARCHAR(20);
 ```
 
-**题 53：创建视图**
+**题 57：增加数据校验约束**
+```sql
+ALTER TABLE students 
+ADD CONSTRAINT check_phone_length 
+CHECK (LENGTH(phone) >= 8);
+```
+**解析**：此后任何人尝试 `UPDATE students SET phone = '123';` 都会直接报错，因为不满足长度 `>= 8` 的约束，保证了后续流入数据的纯洁性。
+
+---
+
+**题 58：创建基础数据视图**
 ```sql
 CREATE VIEW active_students_view AS
 SELECT student_id, student_name, email, major
@@ -1382,20 +1466,54 @@ WHERE is_active = TRUE;
 ```
 随后测试：`SELECT * FROM active_students_view;`
 
-**题 54：创建索引与 EXPLAIN**
+**题 59：创建多表关联大宽表视图**
 ```sql
-CREATE INDEX idx_students_major ON students(major);
-
-EXPLAIN SELECT * FROM students WHERE major = 'CS';
+CREATE VIEW student_course_details AS
+SELECT 
+    s.student_name, 
+    s.major, 
+    c.course_name, 
+    e.score
+FROM students s
+JOIN enrollments e ON s.student_id = e.student_id
+JOIN courses c ON e.course_id = c.course_id
+WHERE e.score IS NOT NULL;
 ```
-**深度解析**：你在用 `EXPLAIN` 观察时，**极大概率依然看到的是 `Seq Scan` (全表扫描)**，并没有看到期望的 `Index Scan`。
-为什么？因为优化器极其聪明。它发现 `students` 表总共才 10 来条数据，把这 10 条数据全读出来筛选，其开销远远小于“先去读一次索引树，再根据索引里的指针跳回去读原表”的开销。索引是为百万级数据准备的，数据太少时优化器会主动弃用它！
+随后的测试查询就变得极其简单：
+```sql
+-- 以后别人想看高分榜单，只需要写这一句简单的查询，内部庞大的三表 JOIN 被完美隐藏！
+SELECT * FROM student_course_details WHERE score >= 90;
+```
 
 ---
 
-# 随堂解答：窗口函数：55
+# 随堂解答：索引与 EXPLAIN
 
-**题 55：保留明细并附加整体平均分**
+**题 54 / 54.1：索引的创建与优化器的博弈**
+
+```sql
+-- 1. 创建索引
+CREATE INDEX idx_students_major ON students(major);
+
+-- 2. 观察计划
+EXPLAIN SELECT * FROM students WHERE major = 'CS';
+```
+**深度解析题 54**：你在用 `EXPLAIN` 观察时，**极大概率依然看到的是 `Seq Scan` (全表扫描)**，并没有看到期望的 `Index Scan`。
+为什么？因为优化器极其聪明。它发现 `students` 表总共才十来条数据，把这十来条数据全读出来筛选，开销远远小于“先去读一次硬盘上的索引树，再根据索引里的指针跳回原表读取”的开销。索引是为百万级数据准备的，数据太少时，优化器会主动弃用它！
+
+```sql
+-- 3. 强行干预（题 54.1）
+SET enable_seqscan = OFF;
+EXPLAIN SELECT * FROM students WHERE major = 'CS';
+SET enable_seqscan = ON;
+```
+**解析**：关闭全表扫描开关后，数据库被迫走弯路，这时候你才能看到那句久违的 `Index Scan using idx_students_major on students`。这完美证明了：有索引，并不意味着它会被使用，我们要相信优化器的成本估算。
+
+---
+
+# 随堂解答：窗口函数进阶
+
+**题 62：保留明细并附加整体平均分**
 ```sql
 SELECT 
     student_id, 
@@ -1405,9 +1523,9 @@ SELECT
 FROM enrollments;
 ```
 **解析**：
-如果没有 `OVER`，单独写 `AVG(score)` 数据库会逼着你加上 `GROUP BY course_id`，从而导致每门课只剩下一行。用了窗口函数，原来的选课行一行没少，只是多出了一列该课的全局平均分，这就是窗口函数的魔力。
+如果没有 `OVER`，单独写 `AVG(score)` 数据库会逼着你写 `GROUP BY course_id`，导致每门课最后被压成一行。用了窗口函数（并使用 `PARTITION BY course_id` 作为“隔板”），原来的个人选课明细一行没少，只是多出了一列该课的全局平均分。
 
-**题 55.1：分组排名**
+**题 63：实战分组内排名**
 ```sql
 SELECT 
     student_id, 
@@ -1418,15 +1536,37 @@ FROM enrollments
 WHERE score IS NOT NULL;
 ```
 **解析**：
-在每门课内部（`PARTITION BY course_id`），按照成绩从高到底（`ORDER BY score DESC`）排定名次（`ROW_NUMBER()`）。这是报表统计极其常用的“组内 Top N”写法。
+在每门课内部（`PARTITION BY course_id`），按照成绩从高到底（`ORDER BY score DESC`）排定 1,2,3 的名次（`ROW_NUMBER()`）。这是最常用的报表语法。
+
+**题 64：CTE 组合技 - 破解组内第一名提取难题**
+```sql
+-- 第 1 步：用 CTE 把带有排名的数据集准备好
+WITH ranked_scores AS (
+    SELECT 
+        student_id, 
+        course_id, 
+        score,
+        ROW_NUMBER() OVER (PARTITION BY course_id ORDER BY score DESC) AS rank_in_course
+    FROM enrollments
+    WHERE score IS NOT NULL
+)
+-- 第 2 步：在外层安全地使用 WHERE 进行筛选，挑出每个组的第 1 名
+SELECT r.course_id, c.course_name, s.student_name, r.score
+FROM ranked_scores r
+JOIN students s ON r.student_id = s.student_id
+JOIN courses c ON r.course_id = c.course_id
+WHERE r.rank_in_course = 1;
+```
+**终极解析**：
+千万记住那个大坑：你**绝对不能写** `WHERE ROW_NUMBER() OVER (...) = 1`。因为在 SQL 底层执行顺序里，`WHERE` 比 `OVER` 先执行，它不认识也不允许出现窗口函数。唯一的正解就是包裹在一层 CTE（或者子查询）里，把它变成固定的列后，再从外层剔除！这是面试和实战的必考题。
 
 ---
 
 # 随堂解答：终极综合：56
 
-**题 56：全方位实战终极报表**
+**题 65：全方位实战终极报表**
 
-这道题是检验你是否真正出师的试金石。
+这是检验你是否通透的试金石。不要放过解析里的任何一个细节！
 
 ```sql
 SELECT
@@ -1446,11 +1586,11 @@ ORDER BY
     s.student_name ASC;
 ```
 
-**终极解析**：
-1. **为什么要用 `LEFT JOIN`？** 题目要求没选课的人也要出现。如果你用默认的 `JOIN` (INNER JOIN)，连不上 `enrollments` 的学生（比如 David）会被直接抛弃。
-2. **为什么写 `COUNT(e.course_id)` 而不是 `COUNT(*)`？** 对于没选课的 David，他连上表后，右边补充的都是 NULL。如果你用 `COUNT(*)`，数据库会认为 David 这行真实存在，结果返回 1；而 `COUNT(列名)` 只会统计非 NULL 的记录，正确返回 0！
-3. **AVG() 会不会把未出分算作 0 分？** 不会，SQL 的 `AVG` 原生就会忽略 NULL 进行计算。
-4. **`GROUP BY` 的列**：虽然业务上是按学生分组，但严谨起见，不仅要放 `student_id`，也要把 `SELECT` 里所有没用聚合函数的字段都放在 `GROUP BY` 里，这是标准规范。
-5. **`NULLS LAST`**：在 PostgreSQL 中，排序时可以将 NULL 指定推到最后。如果不写，默认 `DESC` 排序时 NULL 会跑到第一排。
+**终极深度解析 5 大连环坑**：
+1. **为什么要用 `LEFT JOIN`？** 题目要求没选课的人（如 David）也要出现。如果你用默认的 `JOIN` (INNER JOIN)，连不上 `enrollments` 的学生会被瞬间丢弃抛弃。
+2. **为什么写 `COUNT(e.course_id)` 而不是 `COUNT(*)`？** 对于没选课的 David，他连上宽表后，右边补充的都是 NULL。如果你用 `COUNT(*)`，数据库会认为 David 所在的这一行“客观存在”，无脑返回 1 门课；而写 `COUNT(列名)`，聚合函数会自动过滤 NULL 列，正确地为他返回 0 门课！
+3. **`AVG()` 会不会把未出分（成绩是 NULL）算作 0 分拉低平均值？** 放心，不会。标准 SQL 的 `AVG` 原生就会自动跳过 NULL 进行计算。
+4. **`GROUP BY` 里的安全守则**：虽然业务上是按“人”分组，但严谨起见，不仅要放 `student_id`，也要把 `SELECT` 里所有**没被包裹在聚合函数里的字段**（如 `student_name`, `major`）统统放在 `GROUP BY` 里，否则在大多数数据库下都会报错。
+5. **神来之笔 `NULLS LAST`**：在 PostgreSQL 中，你对含 NULL 的列进行排序时，可以指定 `NULLS FIRST` 还是 `NULLS LAST`。如果不写，当你 `ORDER BY avg_score DESC` 降序时，那些 0 门课、平均分为 NULL 的人会诡异地排在满分 100 分的大神头上！加上 `NULLS LAST` 完美压制了乱跳的空值。
 
-如果你自己思考并独立写出了这段代码，恭喜你，你的 SQL 基础已经非常扎实，完全具备应对真实业务开发中多数 CRUD 报表查询的能力！
+如果你能**完全不看答案、独立理清上述逻辑**，自己一口气写出了这段代码并运行成功……那么热烈恭喜你！你的 SQL 基础已经比很多开发初学者还要扎实透彻，完全具备应对日常工作报表的强悍战斗力！

@@ -2711,19 +2711,19 @@ LIMIT 5;          -- 从合并结果中取前5个
 
 ---
 
-**随堂练习 45.1：用 `UNION ALL` 改写上面的查询，并比较结果数量的差异。**
+**随堂练习 46：用 `UNION ALL` 改写上面的查询，并比较结果数量的差异。**
 
 ---
 
-**随堂练习 46：用 `INTERSECT` 得到“选修了 Database Systems (course_id=1)”且“选修了 Algorithms (course_id=3)”的 `student_id`。**
+**随堂练习 47：用 `INTERSECT` 得到“选修了 Database Systems (course_id=1)”且“选修了 Algorithms (course_id=3)”的 `student_id`。**
 
 ---
 
-**随堂练习 47：用 `EXCEPT` 找出所有学生中没有选课的人（即在 students 表里，但不在 enrollments 表里出现的 student_id）。**
+**随堂练习 48：用 `EXCEPT` 找出所有学生中没有选课的人（即在 students 表里，但不在 enrollments 表里出现的 student_id）。**
 
 ---
 
-**随堂练习 47.1：结合 `EXCEPT` 和 `ORDER BY`，找出提供了成绩的 enrollments (score IS NOT NULL)，排除掉成绩不及格 (score < 60) 的记录，最后按 score 降序排列。查询输出 `student_id, course_id, score`。**
+**随堂练习 49：结合 `EXCEPT` 和 `ORDER BY`，找出提供了成绩的 enrollments (score IS NOT NULL)，排除掉成绩不及格 (score < 60) 的记录，最后按 score 降序排列。查询输出 `student_id, course_id, score`。**
 
 ---
 
@@ -2759,7 +2759,7 @@ WHERE ...;
 
 ---
 
-**随堂练习 48：用 `INSERT ... SELECT` 批量生成测试数据**
+**随堂练习 50：用 `INSERT ... SELECT` 批量生成测试数据**
 
 把所有 `CS` 专业学生临时复制成一组“Copy”测试学生：
 - 姓名后加 ` Copy`，例如 `'Alice Copy'`
@@ -2774,316 +2774,475 @@ WHERE ...;
 
 ## 把复杂查询分步：CTE（WITH）
 
-**CTE（Common Table Expressions，通用表表达式）** 允许你在一个庞大、复杂的 SQL 语句中，定义一个或多个“临时的结果集”，并给它们起名字。你可以把它想象成在 SQL 里定义了**局部变量（虚拟表）**，专门供这一条查询使用。
+### 1. 是什么？
+CTE 的全称是 **Common Table Expressions（通用表表达式）**。
+你可以把它理解为在一个复杂的 SQL 查询语句内部，**临时定义的一个或多个“虚拟结果表”**，并给它们起了名字。在这一次查询执行期间，你随时可以像引用普通表一样引用这些 CTE。
 
-**核心语法**：
+### 2. 为什么有这个东西？
+在没有 CTE 之前，如果我们想基于一个复杂的统计结果进行下一步过滤，只能使用**嵌套子查询**。
+例如：“查出所有学生，从中过滤出分数大于 80 的，再从中过滤出名字带 A 的……”
+这就导致 SQL 变成了“洋葱代码”，一层套一层，极其难以阅读，你必须从最里面那一层往外读才能看懂逻辑。
+有了 CTE 之后，你可以把逻辑**扁平化**：第一步算什么（起名叫 A），第二步算什么（起名叫 B），最后 `SELECT * FROM B`。它让 SQL 变得像写普通代码一样，有清晰的自上而下的逻辑流。
+
+### 3. 语法是什么？
 ```sql
-WITH CTE_Name AS (
-    SELECT ...
+WITH CTE_Name1 AS (
+    -- 这里写第一个完整的 SELECT 查询
+    SELECT column1, column2 FROM some_table
 ),
 CTE_Name2 AS (
-    SELECT ... FROM CTE_Name
+    -- 这里写第二个查询，并且可以直接使用上面的 CTE_Name1
+    SELECT column1 FROM CTE_Name1 WHERE column2 > 10
 )
-SELECT ... FROM CTE_Name2;
+-- 最后的终极查询，可以使用上面定义的所有 CTE
+SELECT * 
+FROM CTE_Name2;
 ```
 
-### 1. 各种用法与常用情境
-
-- **分步拆解复杂逻辑**：当你的 SQL 需要几层嵌套的子查询时（“查出 A 的结果，再从 A 中查 B，再从 B 中查 C”），用子查询会导致代码像洋葱一样一层套一层，极其难以阅读。`WITH` 可以将逻辑**扁平化**，从上到下按顺序写。
-- **重复利用某段查询**：如果在最后的主查询中，需要多次 `JOIN` 同一个复杂的子集。定义一次 CTE，主查询里可以直接像表一样多次引用它。
-- **多步聚合**：需要先求出每门课的平均分（第一次聚合），然后再求出所有课程的总体平均分（第二次聚合）。
-
-### 2. 注意事项与重点
-
-- **生命周期**：CTE 仅仅在**当前这一条 SQL 语句**执行期间存在。查询一旦结束，这个名为 `CTE_Name` 的东西就灰飞烟灭了。它不是视图，也没有往硬盘里存任何数据。
-- **性能提示**：在 PostgreSQL 中，CTE 在多数情况下等价于子查询，优化器会自动把它“展开”并全局优化。但在某些老版本的数据库中，CTE 可能会变成不可优化的黑盒（强制物化），导致性能下降。不过目前在较新的数据库中放心使用即可，**可读性第一**。
-
-**示例：用 CTE 替代洋葱式子查询**
+### 4. 与题目无关的简单例子
+假设我们有一张全国城市人口表 `cities`，你想找出“人口超过平均值的北方城市”。
+如果不使用 CTE，代码可能是嵌套的。使用 CTE：
 ```sql
--- 把“选课表”和“高分筛选”逻辑拆分
-WITH high_score_enrollments AS (
-    SELECT student_id, course_id, score
-    FROM enrollments
-    WHERE score >= 90
+WITH AvgPop AS (
+    -- 第一步：算出全国平均人口
+    SELECT AVG(population) AS avg_p FROM cities
 ),
-student_info AS (
-    SELECT student_id, student_name
-    FROM students
-    WHERE is_active = TRUE
+NorthCities AS (
+    -- 第二步：挑出所有的北方城市
+    SELECT city_name, population FROM cities WHERE region = 'North'
 )
--- 最后的主查询变得非常清晰
-SELECT s.student_name, h.score
-FROM student_info s
-JOIN high_score_enrollments h ON s.student_id = h.student_id;
+-- 第三步：联合查询
+SELECT n.city_name, n.population
+FROM NorthCities n
+CROSS JOIN AvgPop a
+WHERE n.population > a.avg_p;
 ```
+逻辑非常清晰：先求平均值，再找北方城市，最后对比。
+
+### 5. 常见用法是什么？
+- **多步聚合分析**：比如第一步求出每门课的平均分，第二步求出整个学校的所有课程平均分的“平均分”。
+- **复用子查询**：如果你的最终查询中，需要好几次用到同一段复杂的 `JOIN` 结果（比如又要做分子又要做分母），你可以把它定义成一个 CTE，然后多次引用。
+- **递归查询（进阶）**：`WITH RECURSIVE` 甚至可以用来查询树形结构（如员工上下级关系，多级分类菜单等）。
+
+### 6. 重要注意事项
+- **生命周期极短**：CTE 仅仅在**当前这一条完整的 SQL 语句**执行期间存在！它绝不是真正的建表。这个查询执行完毕，CTE 就自动消失了。
+- **性能评估**：在大多数现代数据库（包括较新的 PostgreSQL）中，CTE 相当于语法糖，优化器会自动将其展开并做全局优化。但在某些旧版本或特殊情况下，它可能成为性能瓶颈，不过作为初学者，现在请**无脑优先使用 CTE 以提升代码可读性**。
 
 ---
 
-**随堂练习 49：用 CTE 把多步统计拆解清晰**
+**随堂练习 51：用 CTE 把多步统计拆解清晰**
 
 统计“平均成绩 `>= 80` 的课程”，显示 `课程名` 和 `平均分`。
-- **要求第一步**：使用 `WITH` 建立一个 CTE 叫 `course_avg`，在这个 CTE 里仅仅对 `enrollments` 表进行分组汇总，求出每门课的 `course_id` 和平均分。
-- **要求第二步**：在主查询中，将 `course_avg` 与 `courses` 表进行 `JOIN`，通过 `WHERE` 筛选平均分 `>= 80` 的课程，按平均分降序排列。
+- **步骤 1**：使用 `WITH` 建立一个 CTE 叫 `course_avg`，在这个 CTE 里仅仅对 `enrollments` 表进行分组汇总，求出每门课的 `course_id` 和 `avg_score`。
+- **步骤 2**：在主查询中，将 `course_avg` 与 `courses` 表进行 `JOIN`，通过 `WHERE` 筛选平均分 `>= 80` 的课程，最后按平均分降序排列。
 
-*（体会一下：如果不使用 CTE，你必须用 `HAVING`，而 CTE 可以让你用最舒服的 `WHERE` 进行筛选）*
+---
+
+**随堂练习 52：多层 CTE 的递进调用**
+
+我们要找出：**选修了 "Database Systems" (course_name) 并且成绩高于该门课平均分的学生姓名。**
+这需要三步走，请用两个 CTE 来实现：
+- **CTE 1 (`db_course`)**：从 `courses` 表中查出 "Database Systems" 对应的 `course_id`。
+- **CTE 2 (`db_avg`)**：结合 `db_course` 和 `enrollments`，算出这门课的平均分。
+- **主查询**：结合 `db_course`、`db_avg`、`enrollments`、`students`，找出选了这门课且分数高于 `db_avg` 的人，输出 `student_name`。
+
+*(这道题考验你如何让后一个 CTE 引用前一个 CTE！)*
 
 ---
 
 ## 事务：BEGIN / COMMIT / ROLLBACK
 
-数据库的一大核心价值在于保证**数据的安全性和一致性**。
-如果用户在买东西，涉及到“从你的账户扣钱”和“商家的账户加钱”两步操作。万一第一步执行成功，第二步服务器突然断电了怎么办？你的钱扣了，商家没收到，这是不能接受的。
+### 1. 是什么？
+事务（Transaction）是数据库操作的**最小不可分割工作单元**。它将多条相互关联的 SQL 语句捆绑在一起，这批语句要么**全部执行成功**，要么**全部不执行**，绝对不允许出现“只成功一半”的中间状态。
 
-**事务（Transaction）** 机制就是为了解决这个问题：**把一系列的 SQL 操作捆绑成一个整体，要么全部成功，要么全部撤销（回滚）。**
+### 2. 为什么有这个东西？
+核心是为了保证数据的**安全性、完整性和一致性 (ACID 理论)**。
+最经典的例子就是“银行转账”：A 给 B 转账 100 元。
+操作 1：A 账户余额减 100。
+操作 2：B 账户余额加 100。
+如果操作 1 成功后，突然停电了或者报错了，操作 2 没执行，那么这 100 元就凭空消失了！有了事务，如果操作 2 失败，数据库会自动将操作 1 的状态**回滚（撤销）**，就像一切都没发生过一样。
 
-### 1. 核心概念 (ACID 中的 A 和 C)
+### 3. 语法是什么？
+```sql
+-- 开启事务（宣布进入保护伞模式）
+BEGIN;  -- 也可以写 START TRANSACTION;
 
-- **A (Atomicity, 原子性)**：事务不可分割。里面的 10 条 SQL，哪怕 9 条成功，最后 1 条报错，所有操作都会回到开始之前的状态。
-- **C (Consistency, 一致性)**：事务执行前后，数据的业务约束必须是满足的。
+-- 执行各种增删改查
+UPDATE accounts SET balance = balance - 100 WHERE name = 'A';
+UPDATE accounts SET balance = balance + 100 WHERE name = 'B';
 
-### 2. 各种用法与常用情境
+-- 如果确认一切无误，提交事务，永久保存！
+COMMIT;
 
-- `BEGIN;` （或者 `START TRANSACTION;`）：宣布事务开始。接下来发生的一切修改（`INSERT / UPDATE / DELETE`），数据库都只会做“临时记录”，别人是看不到的，也没有最终写死在硬盘的关键位置。
-- `COMMIT;`：提交。确认这些修改完全没问题，数据库将它们永久保存。
-- `ROLLBACK;`：回滚。发现不对劲（或者中间某条 SQL 报错了），立刻撤销 `BEGIN` 之后的所有操作。
+-- 如果中间发现不对劲，或者外部应用捕获了报错，回滚事务，撤销所有修改！
+ROLLBACK;
+```
 
-**常用情境**：
-- **资金转账 / 订单支付**：所有涉及钱、库存等关键数字的连续修改。
-- **多表关联插入**：比如注册一个企业账号，不仅要在 `users` 表插一条数据，还要在 `companies` 表插一条，同时在 `user_roles` 里赋权。这三步必须作为一个事务。
-- **危险的运维操作**：准备全表 `UPDATE` 时，先 `BEGIN;`，执行完查一下数据看看对不对。对了再 `COMMIT;`，如果写错条件把全表毁了，赶紧 `ROLLBACK;` 救命。
+### 4. 与题目无关的简单例子
+假设电商系统有人下单：
+```sql
+BEGIN;
+-- 1. 生成订单记录
+INSERT INTO orders (user_id, total) VALUES (99, 500);
+-- 2. 扣减商品库存
+UPDATE inventory SET stock = stock - 1 WHERE product_id = 10;
+-- 此时，如果发现库存不足报错了，我们执行：
+ROLLBACK;
+-- 如果完全没问题：
+COMMIT;
+```
 
-### 3. 注意事项与重点
+### 5. 常见用法是什么？
+- **资金/积分变动**：绝对需要事务。
+- **多表级联写入**：例如注册用户时，不仅在 `users` 表里写入数据，还要在 `user_profiles` 里写入初始资料，还要在 `permissions` 表里写入默认权限。必须用事务包起来。
+- **危险运维操作的“后悔药”**：你想手动 `UPDATE` 生产环境的一批数据，但不确定 `WHERE` 条件写得对不对。你可以先敲 `BEGIN;`，然后执行 `UPDATE`，接着写一个 `SELECT` 看看改了哪些行。如果发现连全表都改了（没加 WHERE），马上大喊一声 `ROLLBACK;` 救你一命。如果没问题，才 `COMMIT;`。
 
-- **事务不要开太久**：事务运行期间，被你修改的数据往往会被加上“锁（Lock）”。如果你开着事务去吃饭了，别人想改这条数据就只能卡在那里死等。**事务应该越快结束越好**。
-- **DDL 是否支持事务？**：在 PostgreSQL 中，你甚至可以在事务里撤销建表（`CREATE TABLE`）或改表（`ALTER TABLE`）的操作（这非常强悍！）。而在 MySQL 里，DDL 操作会触发隐式提交，不能回滚。
-- **客户端的自动提交（Auto-Commit）**：DataGrip、DBeaver、JDBC 默认都是“自动提交”模式。即你单独敲一条 `UPDATE`，它就自动包在一个事务里执行并提交了。必须明确使用 `BEGIN` 才能开启多行手动事务。
+### 6. 重要注意事项
+- **自动提交（Auto-Commit）坑**：很多客户端工具（如 DataGrip、DBeaver、JDBC 驱动）默认开启了自动提交模式。这意味着你没写 `BEGIN` 时，每执行一条 SQL，工具都会自动在背后偷偷给你加上 `BEGIN` 和 `COMMIT`。因此要测试事务，必须明确手写 `BEGIN;` 或在客户端设置里关闭 Auto-Commit。
+- **不能把事务开太久**：事务执行期间，被你 `UPDATE` / `DELETE` 的行往往会被加锁（Lock）。如果你写了 `BEGIN`，改了数据，然后去吃午饭了没 `COMMIT`，其他想要修改这些数据的程序全都会被卡死！**事务要尽可能的短、快**。
+- **PostgreSQL 里的神级特性**：在 PostgreSQL 中，你甚至可以在事务里撤销**改表结构（DDL）**！比如 `BEGIN; DROP TABLE students; ROLLBACK;`，表又会回来。而在 MySQL 中，DDL 语句一旦执行会强制立刻提交，无法回滚。
 
 ---
 
-**随堂练习 50：体验事务的反悔机制（ROLLBACK）**
+**随堂练习 53：体验事务的反悔机制（ROLLBACK）**
 
 1. 执行 `BEGIN;`
 2. 用 `UPDATE` 把 Alice 的专业改成 `'Math'`。
-3. 执行 `SELECT` 确认 Alice 现在专业确实是 Math。
+3. 执行 `SELECT` 确认 Alice 现在的专业确实是 Math。
 4. 哎呀，改错了！执行 `ROLLBACK;`
 5. 再次执行 `SELECT`，确认 Alice 的专业恢复成了原本的 `'CS'`。
 
 ---
 
-**随堂练习 51：体验事务的确认机制（COMMIT）**
+**随堂练习 54：体验事务的确认机制（COMMIT）**
 
 1. 执行 `BEGIN;`
 2. 再次用 `UPDATE` 把 Alice 的专业改成 `'Math'`。
 3. 执行 `COMMIT;`
-4. 再次执行 `SELECT` 确认修改已经永久生效。（也可以尝试新开一个 psql 窗口或 console 看看是不是也能看到改变了）。
+4. 再次执行 `SELECT` 确认修改已经永久生效。
+
+---
+
+**随堂练习 55：复杂的联合更改回滚**
+
+我们要开除一名学生，并清理他的选课记录，如果不一起做就容易出数据脏块。
+1. `BEGIN;`
+2. 删除选课表 (`enrollments`) 中 `student_id = 6` (Frank) 的所有记录。
+3. 删除学生表 (`students`) 中 `student_id = 6` 的记录。
+4. 假设现在领导说“算了，再给他一次机会”，请使用 `ROLLBACK;` 撤销上述删除。
+5. 使用 `SELECT` 确认 Frank 依然在学生表和选课表中。
 
 ---
 
 ## 改结构：ALTER TABLE
 
-当你建好表、插入了百万条数据后，突然产品经理说：“我们需要给学生增加一个手机号字段”。你不能把表删了重建，因为数据会丢。这时我们需要用 `ALTER TABLE` 在飞行中换引擎。
+### 1. 是什么？
+在数据库运行了一年之后，业务发展了，原本设计的表结构不再满足需求（比如需要给用户增加一个“微信号”字段，或者把“姓名”列加长）。
+`ALTER TABLE` 允许你在**不删除原表、不丢失数据**的情况下，动态修改表的结构。
 
-**核心语法**：
+### 2. 为什么有这个东西？
+如果没有它，你需要：创建一个新表 -> 把旧表几百万条数据导出来 -> 转换格式 -> 塞进新表 -> 删掉旧表。不仅速度慢，还要停机维护。`ALTER TABLE` 让你可以像给飞行的飞机换引擎一样修改结构。
+
+### 3. 语法是什么？
 ```sql
-ALTER TABLE table_name 
-[ADD COLUMN ... | DROP COLUMN ... | ALTER COLUMN ... | ADD CONSTRAINT ...];
+-- 增加一列
+ALTER TABLE 表名 ADD COLUMN 列名 数据类型;
+
+-- 删除一列
+ALTER TABLE 表名 DROP COLUMN 列名;
+
+-- 修改列的数据类型
+ALTER TABLE 表名 ALTER COLUMN 列名 TYPE 新数据类型;
+
+-- 增加一个约束 (例如唯一约束)
+ALTER TABLE 表名 ADD CONSTRAINT 约束名 UNIQUE(列名);
 ```
 
-### 1. 各种用法与常用情境
+### 4. 与题目无关的简单例子
+```sql
+-- 假设有个 orders 表，我想加个备注字段
+ALTER TABLE orders ADD COLUMN remarks VARCHAR(200);
 
-- **增加列**（最常用）：`ALTER TABLE students ADD COLUMN phone VARCHAR(20);`
-- **删除列**：`ALTER TABLE students DROP COLUMN age;` （危险！数据直接丢弃）
-- **修改列的类型**：`ALTER TABLE students ALTER COLUMN phone TYPE VARCHAR(50);` （把 20 扩宽到 50）
-- **增加/修改约束**：`ALTER TABLE students ADD CONSTRAINT unique_phone UNIQUE(phone);`
-- **重命名列或表**：`ALTER TABLE students RENAME COLUMN student_name TO full_name;`
+-- 把金额的数据类型从 INTEGER 扩大到 NUMERIC(10,2) 以支持小数
+ALTER TABLE orders ALTER COLUMN amount TYPE NUMERIC(10,2);
+```
 
-### 2. 注意事项与重点
+### 5. 常见用法是什么？
+- **业务迭代扩充**：最常见的就是 `ADD COLUMN`。
+- **数据清洗善后**：早期的 `phone` 字段随便大家填，后来清洗完脏数据后，通过 `ALTER TABLE ... ADD CONSTRAINT` 强制加上 `CHECK` 规则。
 
-- **带默认值的新增列可能非常慢**：在旧版本的数据库中，如果你加了一个带 `DEFAULT` 值的列，数据库必须把整张表每一行都重写一遍填入默认值，这会导致锁表甚至宕机。好在 PostgreSQL 11+ 优化了这一点。
-- **在生产环境的谨慎操作**：任何 `ALTER TABLE` 都可能需要获取排他锁。对于高并发、极高数据量的表，修改表结构必须在低峰期进行。
-- 初学时不需要把所有语法背下来，重点掌握如何**增加一列**即可，其他需要用的时候去查文档。
+### 6. 重要注意事项
+- **带默认值的新增列可能很慢**：在较老的数据库版本中，如果你新增一列且指定了 `DEFAULT 'xxx'`，数据库会强行把全表百万行数据全部重写一遍塞入这个默认值，这会导致整张表被长时间锁死。不过 PostgreSQL 11 之后优化了这点，带常量默认值的添加几乎是瞬间完成的。
+- **DROP COLUMN 的不可逆转**：删除列会导致该列数据永久丢失。
+- **修改类型可能失败**：如果你要把 `VARCHAR` 转成 `INTEGER`，但这一列里已经有一些存了 `'abc'` 的脏数据，那么 `ALTER COLUMN TYPE` 会直接报错阻止你。你需要结合 `USING` 子句来指明转换规则。
 
 ---
 
-**随堂练习 52：给学生表增加手机号字段**
+**随堂练习 56：给学生表增加新字段**
 
-给 `students` 表增加一列 `phone`，类型为 `VARCHAR(20)`。
-增加完毕后，用 `SELECT * FROM students;` 或 psql 的 `\d students` 查看表结构是否改变，新增列现有的值应该全是 `NULL`。
+随着学校系统的升级，我们需要记录学生的手机号码。
+请使用 `ALTER TABLE` 给 `students` 表增加一列 `phone`，数据类型为 `VARCHAR(20)`。
+*验证：新增后，用 `SELECT * FROM students` 观察，所有现有学生的手机号默认都是 `NULL`。*
+
+---
+
+**随堂练习 57：为新增的列添加约束**
+
+学校要求，录入的手机号长度至少要大于等于 8 位。
+请使用 `ALTER TABLE ... ADD CONSTRAINT ... CHECK (...)`，为刚添加的 `phone` 列增加一个校验规则（名字可以叫 `check_phone_length`）。
+*(提示：在 PostgreSQL 中测量字符串长度可以用 `LENGTH(phone) >= 8`)*
 
 ---
 
 ## 视图（VIEW）：保存查询的捷径
 
-有些查询非常长（包含四五个 JOIN，几十个 WHERE 条件），每次用到都重写一遍太痛苦了。我们可以将这个查询保存起来，命名为“视图”。
+### 1. 是什么？
+视图是**一段被保存下来的 SQL 查询语句，并在数据库里被当做一张“虚拟表”来对待**。
+一旦建好，你就可以对这个视图使用 `SELECT * FROM 视图名`，就像查询真表一样。
 
-**核心概念**：视图就是**“被命名的查询”**，它本身是一张**虚拟表**。
+### 2. 为什么有这个东西？
+- **隐藏复杂逻辑（化繁为简）**：某个月度财务报表需要 8 个 `JOIN` 加一堆复杂的 `GROUP BY`。如果你每次查都重写一遍，容易写错又浪费时间。把它包装成一个视图，所有看报表的人只需 `SELECT * FROM finance_report_view` 即可。
+- **安全与权限隔离**：假设员工表 `employees` 里有薪水列、身份证号列。你不想把这个表暴露给实习生。你可以创建一个不含敏感列的视图 `CREATE VIEW public_emps AS SELECT id, name, department FROM employees`，然后只给实习生查这个视图的权限。
+- **兼容性隔离**：底层表结构大改了（字段重命名了等），为了不让上层的几十个应用代码跟着改，可以创建一个视图，名字和老表一样，里面的字段名 alias 回老名字，骗过应用代码。
 
-**核心语法**：
+### 3. 语法是什么？
 ```sql
-CREATE VIEW view_name AS
-SELECT ...;
+CREATE VIEW 视图名称 AS
+SELECT 字段1, 字段2...
+FROM 表名
+WHERE 条件...;
 ```
 
-### 1. 各种用法与常用情境
+### 4. 与题目无关的简单例子
+我们经常要查看哪些课程没人选：
+```sql
+CREATE VIEW empty_courses AS
+SELECT c.course_name
+FROM courses c
+LEFT JOIN enrollments e ON c.course_id = e.course_id
+WHERE e.student_id IS NULL;
 
-- **简化复杂查询**：把极为复杂的联表统计查询封装成视图，以后业务端只需要简单的 `SELECT * FROM my_view` 就能拿到结果，隐藏了底层的复杂性。
-- **权限隔离与安全**：比如你有一张 `employees` 表，包含薪水、身份证号等敏感信息。你可以建一个视图 `CREATE VIEW public_employees AS SELECT id, name, department FROM employees;`，然后只把这个视图的查询权限开放给普通员工，这样他们就绝对看不到薪水列。
-- **统一数据口径**：业务上规定“活跃用户”是指 `is_active = true` 且一年内有过登录的用户。把这个逻辑写死在视图里，所有的报表都去查这个视图，就不会有人用错定义。
+-- 以后直接查：
+SELECT * FROM empty_courses;
+```
 
-### 2. 注意事项与重点
+### 5. 常见用法是什么？
+- 把带有各种业务过滤条件（如 `is_deleted = false`, `status = 'active'`）的基础查询封在视图里。
+- 把最核心的几张表 JOIN 好，作为一个宽表视图提供给数据分析师。
 
-- **普通视图不存数据**：每次你 `SELECT * FROM 视图` 时，数据库底层其实是把定义视图的那段 `SELECT` 拿出来当场执行了一遍。所以它**不能提升查询性能**，它只是一层语法糖。
-- **物化视图（Materialized View）**：PostgreSQL 还支持物化视图，这种视图会把结果真的存到硬盘上，查询极快，但底层数据更新时，你需要手动或定时刷新它（`REFRESH MATERIALIZED VIEW`）。
-- **通过视图更新数据**：简单的单表视图可以执行 `UPDATE / INSERT`，数据库会自动把修改传递给底层表。但涉及 JOIN、聚合的复杂视图是只读的。
+### 6. 重要注意事项
+- **普通视图绝对不存数据！！**：当你在查询视图时，数据库底层是把视图背后的那段长 SQL 拿出来，跟你当前的查询拼接到一起，**当场去底层真实表里现查**的。所以，**视图不能提升哪怕一丁点查询性能**，它纯粹只是为了可维护性和安全性。
+- **能更新吗？**：非常简单的单表视图（没有聚合、没有 JOIN）是支持 `UPDATE / INSERT` 的，更改会自动透传到原表。但如果视图包含 `GROUP BY` 或复杂关联，通常是只读的。
+- **物化视图（Materialized View）**：这是 PostgreSQL 的高级功能。它和普通视图不同，它是真的把结果算出来存在硬盘上，查询极快！但原表数据更新时，它不会自动同步，需要人工执行 `REFRESH MATERIALIZED VIEW`。
 
 ---
 
-**随堂练习 53：创建常用数据视图**
+**随堂练习 58：创建基础数据视图**
 
 创建一个名为 `active_students_view` 的视图，该视图只包含 `is_active = TRUE` 的学生信息。
 创建完成后，执行 `SELECT * FROM active_students_view;` 验证。
-*(可以尝试更新底层表 `students` 里某个活跃学生为不活跃，再查一遍视图，体会视图是动态获取最新数据的。)*
 
 ---
 
-## 索引（INDEX）与 EXPLAIN
+**随堂练习 59：创建多表关联大宽表视图**
 
-随着数据量从几百行增长到几百万行，`SELECT * FROM students WHERE email = 'xxx'` 会变得极其缓慢。因为数据库必须从头到尾一行行扫描全表（全表扫描 Seq Scan）。
-**索引（Index）** 就像是书本背后的目录或者字典的拼音检字表。通过目录，你可以瞬间翻到特定的页码。
+每次查选课明细都要写 `JOIN` 太累了。
+请创建一个名为 `student_course_details` 的视图，该视图需要整合三张表，输出如下列：
+- `student_name`
+- `major`
+- `course_name`
+- `score`
+- （过滤条件：成绩必须非 NULL 才出现）。
 
-**核心语法**：
-```sql
-CREATE INDEX idx_name ON table_name(column_name);
-```
-
-### 1. 各种用法与常用情境
-
-- **等值查询与范围查询**：为经常放在 `WHERE` 后面的列建索引。最常用的是 B-Tree 索引，它对等值（`=`）、范围（`> < BETWEEN`）、甚至是前缀匹配（`LIKE 'abc%'`）都能大幅加速。
-- **加速排序与分组**：如果你经常需要 `ORDER BY created_at`，给 `created_at` 加上索引，数据库可以直接顺着索引树读取，连排序的力气都省了。
-- **唯一约束本质就是唯一索引**：当你声明 `UNIQUE` 或 `PRIMARY KEY` 时，数据库其实自动在背后为你建了一个唯一索引（Unique Index）。
-
-### 2. 注意事项与重点 (非常关键！)
-
-- **有索引 ≠ 一定会用索引**：如果你要找书里“所有带有'的'字的句子”，就算有目录，因为'的'字太多，翻目录的成本可能比从头读一遍整本书还高。优化器同理，如果表特别小，或者查询结果占全表很大比例（比如查男女性别），优化器会**故意忽略索引**直接全表扫描。
-- **维护成本**：天下没有免费的午餐。每一条 `INSERT / UPDATE / DELETE`，数据库都必须同步修改相关的索引树。所以索引建得越多，写入就越慢，且占用大量硬盘空间。只给必要的字段建索引。
-- **不要在索引列上做运算**：`WHERE year(created_at) = 2023` 会导致索引失效，因为索引是针对原始字段建的。应当改写为 `WHERE created_at >= '2023-01-01'`。
-
-### 3. EXPLAIN：查看执行计划
-
-你想知道数据库到底有没有用你的索引？用 `EXPLAIN`。它不会真的执行查询返回数据，而是告诉你它**打算怎么做**。
-
-```sql
-EXPLAIN SELECT * FROM students WHERE email = 'bob@example.com';
-```
-- 如果看到 `Seq Scan on students`，说明在做全表顺序扫描。
-- 如果看到 `Index Scan using ...`，说明在使用索引精确查找。
+以后老师想查成绩单，直接 `SELECT * FROM student_course_details WHERE score >= 90;` 就可以了。请创建完毕后试跑一下这句查询验证。
 
 ---
 
-**随堂练习 54：索引与 EXPLAIN 观察**
+## 索引（INDEX）与 EXPLAIN 分析
 
-1. 尚未建索引时，使用 `EXPLAIN SELECT * FROM students WHERE major = 'CS';` 观察查询计划，记录下此时的耗时估算和扫描类型（应该是 Seq Scan）。
+### 1. 是什么？
+**索引（Index）** 就像是书本背后的目录，或者字典里的部首检字表。在数据库里，它通常是一种称为 B-Tree（平衡树）的数据结构，独立存储在硬盘上。
+`EXPLAIN` 则是数据库提供的一个“透视镜”，它告诉你，数据库在执行你的 SQL 时，到底打不打算使用这本目录。
+
+### 2. 为什么有这个东西？
+如果表里有 1000 万个学生，你要找 `email = 'bob@example.com'` 的人。没有索引，数据库只能使用最笨的办法：**全表扫描（Sequential Scan）**，从第 1 行读到第 1000 万行，这可能耗时好几秒。
+如果给 `email` 建了索引，数据库会去一棵高度优化的树里进行二分查找，也就是**索引扫描（Index Scan）**，只需要几次比对（几毫秒）就能精准拿到数据在硬盘上的物理位置。
+
+### 3. 语法是什么？
+```sql
+-- 创建普通索引
+CREATE INDEX 索引名称 ON 表名 (列名);
+
+-- 查看数据库执行计划
+EXPLAIN SELECT * FROM 表名 WHERE 某列 = '某个值';
+```
+
+### 4. 与题目无关的简单例子
+电商网站查找订单：
+```sql
+CREATE INDEX idx_orders_user_id ON orders(user_id);
+-- 这样，用户在前端点击“我的订单”时，数据库能瞬间找出他买过的东西。
+EXPLAIN SELECT * FROM orders WHERE user_id = 12345;
+```
+
+### 5. 常见用法是什么？
+- 为经常放在 `WHERE` 后面做等值或范围查询的列建索引（如 `age > 20`, `created_at BETWEEN ...`）。
+- 为经常用于 `JOIN` 连接条件的列（如外键）建索引，极大加速多表查询。
+- 为经常需要排序的列（`ORDER BY created_at`）建索引，因为索引本身就是排好序的，数据库可以直接顺手牵羊免去临时排序的巨大开销。
+- `PRIMARY KEY` 和 `UNIQUE` 约束，数据库会自动在后台为你建好唯一索引。
+
+### 6. 重要注意事项（最容易犯错的地方！）
+- **索引的代价**：天下没有白吃的午餐。每一条插入、修改、删除操作（`INSERT/UPDATE/DELETE`），数据库不但要改表里的数据，还得顺带修改目录（维护这棵 B-Tree）。所以，**索引建得越多，写入速度就越慢，占用的硬盘空间也越庞大**。切忌给每个列都建索引！
+- **有索引 ≠ 一定会用索引**：这是无数新手的误区。如果你有一张仅有 10 个人的学生表，你为 `major` 建了索引。当你执行 `SELECT * FROM students WHERE major = 'CS'` 时，优化器会掐指一算：去翻目录、再按目录找原文的时间，还不如直接把这 10 行扫一遍快。于是它会主动放弃索引，强行走 `Seq Scan`。
+- **索引失效**：不要在索引列上做运算。例如 `WHERE YEAR(created_at) = 2023`，原本建立在 `created_at` 上的索引会直接失效！你应该改成 `WHERE created_at >= '2023-01-01'`。
+
+---
+
+**随堂练习 60：索引与 EXPLAIN 观察实验**
+
+我们来做个实验体会优化器的聪明程度：
+1. 尚未建索引时，使用 `EXPLAIN SELECT * FROM students WHERE major = 'CS';` 观察查询计划，记录下扫描类型（应该是 Seq Scan）。
 2. 为 `students` 表的 `major` 列创建索引：`CREATE INDEX idx_students_major ON students(major);`。
-3. 再次执行 `EXPLAIN ...`。
-*思考：此时一定变成了 Index Scan 吗？为什么？（提示：回顾上文，因为你的表里只有不到 10 个人，全表扫可能比走目录更快！）*
+3. 再次执行 `EXPLAIN SELECT ...`。
+*观察：是不是依然变成了 Seq Scan？为什么？结合上文的知识思考原因。*
 
 ---
 
-## 进阶：窗口函数（Window Functions）
+**随堂练习 61：如何骗过优化器强制看 Index Scan？**
 
-这是 SQL 进阶的分水岭。
-前面我们学过 `GROUP BY`，它的特点是**“把多行压缩成一行”**，你求出了每个部门的平均薪水，但每个员工的具体明细就看不到了。
-**窗口函数**的威力在于：**它能在不“压缩/折叠”原有行的前提下，进行分组聚合计算和排名。**
+我们刚才的数据太少了，优化器不屑于用索引。
+要强行看到索引扫描，我们可以关闭全表扫描的倾向。在 PostgreSQL 中（可以在 DataGrip 控制台或 psql 里执行）：
+1. 先执行 `SET enable_seqscan = OFF;` （这是告诉优化器：求你了，只要有索引就尽量用）。
+2. 再次执行 `EXPLAIN SELECT * FROM students WHERE major = 'CS';`。
+3. 这次你应该能看到赫然醒目的 `Index Scan using idx_students_major` 了！
+4. 实验完记得恢复：`SET enable_seqscan = ON;`
 
-**核心语法**：
+---
+
+## 进阶巅峰：窗口函数（Window Functions）
+
+### 1. 是什么？
+窗口函数是 SQL 标准中极其强大的一部分，它可以**在不“压缩/折叠”原有行的前提下，对一系列与当前行相关的行集合（称为“窗口”）执行聚合计算或排名计算。**
+
+### 2. 为什么有这个东西？
+在没有窗口函数时，如果我们用 `GROUP BY`，它会把多行“揉碎”压缩成一行。
+例如你想算：“全班所有人的明细成绩单，并且要在每人成绩旁边附上全班的平均分。”
+如果你用 `GROUP BY` 求了平均分，人的名字就看不到了；如果你不想丢掉名字，你就只能写个子查询查平均分，然后再和原表 JOIN 起来，极为麻烦！
+窗口函数让你“鱼与熊掌兼得”：**既保留了明细，又计算了宏观聚合指标**。
+
+### 3. 语法是什么？
 ```sql
-聚合函数或排名函数 OVER (PARTITION BY 分组列 ORDER BY 排序列)
+函数名(...) OVER (
+    [PARTITION BY 分组列] 
+    [ORDER BY 排序列]
+)
 ```
+- **函数名**：可以是普通的聚合函数（如 `SUM`, `AVG`, `COUNT`），也可以是专用的排名函数（如 `ROW_NUMBER()`, `RANK()`），或是位移函数（`LEAD()`, `LAG()`）。
+- **PARTITION BY**：相当于窗口函数里的 `GROUP BY`，把数据划分成几个独立的小隔间分别计算。如果不写，就把整个结果集当做一个大窗口。
+- **ORDER BY**：规定在计算这一小隔间内的数据时，按什么顺序来算（对于排名、累计求和特别重要）。
 
-### 1. 各种用法与常用情境
-
-- **携带整体统计数据**：我既要看每个人的名字和成绩，也要在同一行显示“这门课的平均成绩是多少”，还要算他跟平均成绩差了多少分。
-- **分组内排名（Top N）**：查询**每个专业**成绩前 3 名的学生（只用普通的 GROUP BY 是做不到的）。使用 `ROW_NUMBER() OVER (PARTITION BY major ORDER BY score DESC)`。
-- **同比/环比分析**：使用 `LAG()` 和 `LEAD()` 函数，可以在不使用自连接的情况下，让当前行直接拿到“上一行”或“下一行”的数据（例如对比昨天的销量）。
-
-### 2. 注意事项与重点
-
-- **执行顺序极其靠后**：窗口函数是在 `WHERE`、`GROUP BY`、`HAVING` 全部算完，结果集已经成型之后才执行的。所以你**不能**在 `WHERE` 里直接使用窗口函数进行过滤（如果需要过滤排名，必须包一层子查询或 CTE）。
-- **资源消耗**：复杂的窗口操作可能涉及大量的内存排序，需留意性能。
-
----
-
-**随堂练习 55：窗口函数实战 - 保留明细的同时算平均分**
-
-查询 `enrollments` 表中的所有选课记录，输出：`student_id, course_id, score`。
-同时新增一列 `course_avg`，使用窗口函数计算出**该门课的整体平均分**，以供对比。
-对比一下结果：你依然能看到所有个人的选课明细行，但每行都带上了一个宏观的统计指标。
-
----
-
-**随堂练习 55.1：窗口函数实战 - 分组排名（进阶拓展）**
-
-查询 `enrollments` 表。要求在 `course_id` 内进行分组（PARTITION BY），并按照 `score` 从高到低进行排名（ORDER BY）。
-使用 `ROW_NUMBER() OVER (...) AS rank` 得到他们在当前课程中的名次。
-
----
-
-## PostgreSQL 专属特性（预览）
-
-在掌握了以上标准 SQL 之后，我们来快速预览一下 PostgreSQL 之所以	被称为“世界上最先进的开源关系型数据库”的几个常用特色功能。你可以先混个脸熟，日后遇到再深入：
-
-1. **RETURNING**：在执行 `INSERT / UPDATE / DELETE` 时，可以直接在语句最后加上 `RETURNING *` 或 `RETURNING id`。这样就不需要再发一次 `SELECT` 去查刚刚插入的主键是什么了，非常适合配合后端代码使用。
-2. **ON CONFLICT (UPSERT)**：`INSERT ... ON CONFLICT (id) DO UPDATE SET ...`。俗称“存在则更新，不存在则插入”。完美解决并发环境下的插入冲突问题。
-3. **ILIKE**：不区分大小写的 `LIKE`。比如 `ILIKE '%alice%'` 可以匹配 `'Alice'`，标准 SQL 往往要用 `LOWER(name) LIKE '%alice%'`。
-4. **强悍的类型转换符 `::`**：标准 SQL 用 `CAST('123' AS INTEGER)`，PG 里你可以霸气地写 `'123'::INTEGER`，不仅打字快，还支持嵌套。
-5. **原生的 JSON/JSONB 支持**：你可以直接把一个复杂的 JSON 文档塞进一列，并且直接用特定的符号（如 `->>`）像查询正常列一样去检索、创建 JSON 树内部的索引。NoSQL 和 SQL 的完美融合。
-
----
-
-## 图 1：查询主骨架（执行顺序）
-
-你写 SQL 时是从上往下写，但**数据库实际执行（理解）时的顺序**是这样的，这一点非常重要：
-
-```text
-1. FROM / JOIN   （先把几张表拖过来，连起来，拼成一张大宽表）
-2. WHERE         （在这张宽表里，按条件筛掉不需要的行）
-3. GROUP BY      （把剩下的行按某种特征进行分组打包）
-4. HAVING        （筛掉不符合要求的包）
-5. SELECT        （把你要的那些列挑出来，此时也可以进行窗口函数计算）
-6. DISTINCT      （去重）
-7. ORDER BY      （把结果排个序）
-8. LIMIT / OFFSET（切掉前几个，截取几个，交卷返给客户端）
+### 4. 与题目无关的简单例子
+**累计求和**：假设有个每日销售额表，我想看每一天的当日营业额，以及“从第一天截至当日的累计总营业额”：
+```sql
+SELECT 
+    date, 
+    daily_sales,
+    SUM(daily_sales) OVER (ORDER BY date) AS cumulative_sales
+FROM sales;
 ```
-记住这个顺序，你就能明白为什么不能在 `WHERE` 里用聚合函数，或者为什么不能在 `WHERE` 里用 `SELECT` 里起的别名了。
+由于写了 `ORDER BY date`，`SUM` 会变成一行行往下滚雪球式累加。
+
+### 5. 常见用法是什么？
+- **携带整体统计数据**：如上面说的不折叠行附带平均分。
+- **分组内排名（Top N 问题）**：例如查询“每个班级里考试排名前 3 的学生”。用 `ROW_NUMBER()` 函数。
+- **同比/环比分析**：使用 `LAG(sale, 1) OVER (ORDER BY month)`，可以让当前行直接读取到“上一行”也就是上个月的销售额，从而轻松计算出环比增长率。
+
+### 6. 重要注意事项
+- **执行顺序处于最末端**：窗口函数的计算发生在 `WHERE`, `GROUP BY`, `HAVING` 全部执行完毕之后，仅仅在最终返回给 `SELECT` 显示之前！
+- **巨大的坑**：因为上面这一条规则，**你绝不能把窗口函数写在 `WHERE` 子句里过滤数据！！** 比如你想查排名第 1 的人，你写 `WHERE ROW_NUMBER() OVER(...) = 1`，数据库会直接报错。正确的做法是：**必须把窗口函数包在一个 CTE 或子查询里算好并起了别名，然后在外层通过 WHERE 去过滤。**
 
 ---
 
-## 图解 2、3、4 （略作回顾即可）
+**随堂练习 62：实战 - 保留明细的同时算平均分**
 
-- **数据修改骨架**：`INSERT INTO ... VALUES` / `UPDATE ... SET ... WHERE` / `DELETE FROM ... WHERE`。
-- **NULL 与三值逻辑**：`IS NULL`、`COALESCE`。永远记住 `NULL = NULL` 的结果是 `UNKNOWN`。
-- **JOIN 的方向感**：`INNER`（交集匹配）、`LEFT`（左边老大全保留，右边没有补 NULL）。
+查询 `enrollments` 表中的所有选课记录，输出：`student_id`, `course_id`, `score`。
+同时新增一列 `course_avg`，要求使用窗口函数计算出**该门课（分组依据）的整体平均分**，以便知道这个学生有没有拖后腿。
 
 ---
 
-**随堂练习 56：终极综合题**
+**随堂练习 63：实战 - 组内排名**
 
-考验你是否真正通透的时候到了！这是一道极具实战意义的报表统计题。
+依然是查询 `enrollments` 表。
+请输出 `student_id`, `course_id`, `score`。
+并要求在 `course_id` 内部进行分组划分，按照 `score` 从高到低排序，使用 `ROW_NUMBER()` 产生一列新数据 `rank_in_course`。
+（这样你就知道每个人在这门课里的名次了）。
+*注意，要排除那些没有成绩的记录，所以在 `WHERE` 里加上 `score IS NOT NULL`。*
 
-我们需要输出一份“学生整体学业概况”报告，包含：
+---
+
+**随堂练习 64：进阶综合挑战（CTE + 窗口函数过滤）**
+
+领导要求：找出“所有课程成绩中，只要他在该门课排名第 1 的记录，就给我列出来”。
+结合刚才我们说过的“巨大坑的解法”：
+1. **写一个 CTE**（比如叫 `ranked_scores`），里面使用刚才 55.1 题的代码生成带有 `rank_in_course` 的数据。
+2. **在主查询中**，`SELECT * FROM ranked_scores`，并通过 `WHERE` 过滤出 `rank_in_course = 1` 的行。
+3. 可选：你可以和 `students` 以及 `courses` 再 JOIN 一下把可读的姓名和课名拉出来。
+
+*(这道题就是企业中大名鼎鼎的“求组内 Top N 数据”的标准解法！)*
+
+---
+
+## PostgreSQL 专属特性（快速预览）
+
+至此，标准 SQL 的主线已经走通。在真实开发中，PostgreSQL 提供了一些极其舒爽的方言和独有特性，它们能极大提高开发效率。你不需要现在就精通，但务必混个眼熟：
+
+1. **RETURNING 子句**
+   - **痛点**：以往 `INSERT` 进去一条新数据，往往它的 ID 是自增生成的。如果后端代码紧接着要用到这个新 ID，不得不再发一条 `SELECT max(id)` 或者调一个 `LAST_INSERT_ID`，麻烦且并发下不安全。
+   - **PG 方案**：直接写 `INSERT INTO students (name) VALUES ('Tom') RETURNING student_id, created_at;`，插入完毕后，立刻直接把这行新数据的这两个字段返回给你！
+
+2. **ON CONFLICT (UPSERT 功能)**
+   - **痛点**：我想插入一条数据，但万一这人已经存在了（触发了唯一主键冲突），我该怎么办？以往要先 `SELECT` 判断存不存在，存在就发 `UPDATE`，不存在发 `INSERT`，并发时容易死锁。
+   - **PG 方案**：
+     ```sql
+     INSERT INTO students (student_id, age) VALUES (1, 18)
+     ON CONFLICT (student_id) DO UPDATE SET age = 18;
+     ```
+     俗称“不存在则插入，存在则更新”，一条搞定，绝对并发安全。
+
+3. **强大的类型转换符 `::`**
+   - **痛点**：标准 SQL 的类型转换很繁琐：`CAST('123' AS INTEGER)`。
+   - **PG 方案**：直接写 `'123'::INTEGER` 或者 `date_string::TIMESTAMP`，极其简练，还能嵌套使用。
+
+4. **ILIKE 不区分大小写匹配**
+   - `LIKE 'abc%'` 是严格区分大小写的。如果在 MySQL 里想忽略，常常要改排序规则。在 PG 里，直接用 `student_name ILIKE '%alice%'` 就能找出 'Alice', 'ALICE', 'alice'，非常实用。
+
+5. **无敌的 JSONB 支持**
+   - PG 允许你把一个巨大的、没有固定结构的 JSON 数据直接塞进名为 JSONB 的列里。不仅能存，你还能直接在 SQL 里用专属箭头运算符提取内部节点：`SELECT config->>'theme' FROM users;`。甚至还能为 JSON 内部的某个深度属性建立索引，查询飞快。PG 凭借此特性完美兼顾了关系型（SQL）和非关系型（NoSQL/MongoDB）的优势。
+
+---
+
+## 终极综合挑战：一锤定音
+
+**随堂练习 65：全方位实战终极报表**
+
+考验你是否真正通透的时候到了！这是一道包含 80% SQL 核心思想的报表统计题。
+
+我们需要给教务处出具一份“学生整体学业概况”报告，要求查询出如下 4 个列：
 1. `student_name` （学生姓名）
 2. `major` （专业）
-3. `course_count` （选课数量，一门都没选的应该是 0）
-4. `avg_score` （平均成绩）
+3. `course_count` （选课数量，如果一门都没选，必须显示为 0，不能不出现）
+4. `avg_score` （该生所有选课的平均成绩）
 
 **极其严苛的业务要求：**
-- **没选课的学生（比如 David）也必须出现在列表中！**
-- 平均成绩的计算中，**只有成绩为 NULL（未出分）的不能被当成 0 分拉低平均值**（数据库的 AVG 本身默认忽略 NULL，但要确保你的逻辑没破坏它）。
-- 如果这个学生 1 门课都没选，他的平均成绩显示为 `NULL`。
-- **排序规则**：优先按照平均成绩**从高到低 (DESC)** 排序。由于包含没选课的人，有的人平均分是 NULL。你需要保证有成绩的人排在前面，NULL 排在**最后面**。
-- 如果平均成绩完全一样，按照姓名首字母**升序 (ASC)** 排序。
+- **必须覆盖所有人**：即便像 David 这种 1 门课都没有选的学生，也**必须**出现在最终列表里！
+- **NULL 值的严谨处理**：计算平均成绩时，如果有某门课成绩是 NULL（刚选课还没考试出分），那么它不参与平均分计算（`AVG` 原本就具备此特性，你只需保证不破坏它）。
+- **0 门课的呈现**：如果该生 1 门课都没选，他的平均分显示为 `NULL` 即可。
+- **魔鬼级排序控制**：
+  - 首要原则：优先按照平均成绩 `avg_score` **从高到低 (DESC)** 排序。
+  - 由于包含了没选课的人，有的人平均分是 NULL。你需要保证**有真实成绩的人排在前面，NULL 值统统沉淀到列表最后面！**
+  - 次要原则：如果两个人的平均成绩完全一样（或者同为 NULL），则继续按照学生姓名首字母**升序 (ASC)** 排列。
 
-*（这道题考验你对 `LEFT JOIN`、`COUNT(某列)`与`COUNT(*)`的区别、`GROUP BY`、以及高级排序控制的综合运用能力！）*
+*(提示：你必须慎重思考该从哪张表起手，使用 INNER 还是 LEFT JOIN？如何确保 `COUNT()` 对于没选课的人不会虚报为 1？如何在排序末尾加上 `NULLS LAST` 解决空值置顶问题？分组字段该填全哪些列？请自己构思完整 SQL！)*
 
 ---
 
@@ -3092,16 +3251,16 @@ EXPLAIN SELECT * FROM students WHERE email = 'bob@example.com';
 以后每学一个新语法，都遵循：
 
 ```text
-讲懂一个小知识点
+1. 讲懂一个小知识点
         ↓
-马上在同一个数据库上做 1~几个小题
+2. 马上在同一个数据库上做 1~几个小题
         ↓
-看结果
+3. 看结果
         ↓
-自己解释“为什么”
+4. 自己解释“为什么是这样”
         ↓
-再继续下一块
+5. 再继续下一块
 ```
 
 不要等整章结束才做题。
-当你把这 56 道题所涉及的核心骨架彻底刻进 DNA，以后再去学复杂的企业级性能优化或者特定的数据库方言，就会像顺水推舟一样简单。祝你早日攻克 SQL！
+当你把这 56 道题（含附加题）所涉及的核心骨架彻底刻进 DNA，以后再去学复杂的企业级性能优化或者特定的数据库方言，就会像顺水推舟一样简单。祝你早日攻克 SQL！
