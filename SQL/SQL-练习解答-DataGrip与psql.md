@@ -1487,9 +1487,79 @@ SELECT * FROM student_course_details WHERE score >= 90;
 
 ---
 
+**题 60：WITH CHECK OPTION 安全门实验**
+
+```sql
+-- 1. 创建带 CHECK OPTION 的视图
+CREATE VIEW active_students_check AS
+SELECT student_id, student_name, major, is_active
+FROM students
+WHERE is_active = TRUE
+WITH CHECK OPTION;
+
+-- 2. 尝试插入不活跃学生 → 会报错！
+INSERT INTO active_students_check (student_name, major, is_active)
+VALUES ('TestUser', 'CS', FALSE);
+-- 报错：ERROR: new row violates check option for view "active_students_check"
+
+-- 3. 尝试把活跃学生改成不活跃 → 也会报错！
+UPDATE active_students_check SET is_active = FALSE WHERE student_name = 'Alice';
+-- 报错：ERROR: new row violates check option for view "active_students_check"
+```
+
+**解析**：
+`WITH CHECK OPTION` 的作用是：**通过这个视图插入或修改的数据，必须能被这个视图自己看到**。
+
+- 插入 `is_active = FALSE` 的学生：这条数据不满足视图的 `WHERE is_active = TRUE` 条件，插进去后在视图里"看不见"，所以被拒绝。
+- 把 Alice 改成 `is_active = FALSE`：改完后 Alice 也不满足视图条件了，在视图里"看不见"了，所以也被拒绝。
+
+如果创建视图时**不加** `WITH CHECK OPTION`，上面两条语句都能成功。但插入的 `TestUser` 和被改的 Alice 都会从 `active_students_check` 视图里"消失"——你插进去/改完就找不到了，这是非常隐蔽的 bug。`WITH CHECK OPTION` 就是用来防止这种情况的安全门。
+
+---
+
+**题 61：修改视图定义与视图嵌套**
+
+```sql
+-- 1. 修改已有视图，增加 created_at 列
+CREATE OR REPLACE VIEW active_students_view AS
+SELECT student_id, student_name, email, major, created_at
+FROM students
+WHERE is_active = TRUE;
+
+-- 验证
+SELECT * FROM active_students_view;
+
+-- 2. 基于视图创建视图（视图嵌套）
+CREATE VIEW cs_active_students AS
+SELECT * FROM active_students_view WHERE major = 'CS';
+
+-- 验证
+SELECT * FROM cs_active_students;
+```
+
+**解析**：
+`CREATE OR REPLACE VIEW` 可以在不删除视图的情况下修改其定义。但有一个限制：**不能改变列的数量和顺序**。如果你新的 SELECT 返回的列数和原来不一样，PostgreSQL 会报错，这时候需要先 `DROP VIEW` 再 `CREATE VIEW`。
+
+视图嵌套在语法上完全合法。查询 `cs_active_students` 时，数据库底层会把两层视图展开，实际执行的 SQL 相当于：
+
+```sql
+SELECT * FROM (
+    SELECT * FROM (
+        SELECT student_id, student_name, email, major, created_at
+        FROM students
+        WHERE is_active = TRUE
+    ) active_students_view
+    WHERE major = 'CS'
+) cs_active_students;
+```
+
+最终还是只查了 `students` 一张真表。但嵌套太深会让 SQL 变得复杂，优化器可能难以优化，建议嵌套不超过 2-3 层。
+
+---
+
 # 随堂解答：索引与 EXPLAIN
 
-**题 54 / 54.1：索引的创建与优化器的博弈**
+**题 62/63：索引的创建与优化器的博弈**
 
 ```sql
 -- 1. 创建索引
@@ -1498,7 +1568,7 @@ CREATE INDEX idx_students_major ON students(major);
 -- 2. 观察计划
 EXPLAIN SELECT * FROM students WHERE major = 'CS';
 ```
-**深度解析题 54**：你在用 `EXPLAIN` 观察时，**极大概率依然看到的是 `Seq Scan` (全表扫描)**，并没有看到期望的 `Index Scan`。
+**深度解析题 63**：你在用 `EXPLAIN` 观察时，**极大概率依然看到的是 `Seq Scan` (全表扫描)**，并没有看到期望的 `Index Scan`。
 为什么？因为优化器极其聪明。它发现 `students` 表总共才十来条数据，把这十来条数据全读出来筛选，开销远远小于“先去读一次硬盘上的索引树，再根据索引里的指针跳回原表读取”的开销。索引是为百万级数据准备的，数据太少时，优化器会主动弃用它！
 
 ```sql
@@ -1511,9 +1581,88 @@ SET enable_seqscan = ON;
 
 ---
 
+**题 64：索引失效实验——函数是索引的杀手**
+
+```sql
+-- 1. 创建索引
+CREATE INDEX idx_students_created_at ON students(created_at);
+
+-- 2. 正确写法：列是裸的，能用索引
+EXPLAIN SELECT * FROM students
+WHERE created_at >= '2024-01-01'
+  AND created_at < '2025-01-01';
+-- 扫描类型：Index Scan 或 Bitmap Index Scan（数据少时可能 Seq Scan）
+
+-- 3. 错误写法：在索引列上用函数，索引失效！
+EXPLAIN SELECT * FROM students
+WHERE EXTRACT(YEAR FROM created_at) = 2024;
+-- 扫描类型：Seq Scan（全表扫描）
+```
+
+**解析**：
+索引里存的是 `created_at` 的**原始值**，按时间顺序排列成 B-Tree。
+
+- 正确写法 `created_at >= '2024-01-01'`：数据库可以直接在 B-Tree 里定位到 2024-01-01 这个位置，然后顺着索引往后读，很快。
+- 错误写法 `EXTRACT(YEAR FROM created_at) = 2024`：数据库需要对**每一行**的 `created_at` 先算 `EXTRACT(YEAR FROM ...)`，再比较结果是不是 2024。索引里存的不是这个计算结果，所以完全用不上，只能全表扫描。
+
+> 记忆法：**索引列必须是"裸"的，不能被函数包着。** 把函数挪到值的那边去。
+
+**进阶解答**：如果确实需要经常按年份查询，可以建**表达式索引**：
+
+```sql
+CREATE INDEX idx_students_year ON students(EXTRACT(YEAR FROM created_at));
+```
+
+这样 `WHERE EXTRACT(YEAR FROM created_at) = 2024` 就能用上索引了。但更推荐的做法还是改写条件为范围查询，因为范围查询更通用、索引利用率更高。
+
+---
+
+**题 65：复合索引与最左前缀原则**
+
+```sql
+-- 1. 创建复合索引
+CREATE INDEX idx_enroll_student_course
+ON enrollments(student_id, course_id);
+
+-- 2. 查询 A：只用第一列 → 能用索引
+EXPLAIN SELECT * FROM enrollments WHERE student_id = 1;
+-- Index Scan using idx_enroll_student_course
+
+-- 3. 查询 B：两列都用 → 能用索引，且效率最高
+EXPLAIN SELECT * FROM enrollments
+WHERE student_id = 1 AND course_id = 2;
+-- Index Scan using idx_enroll_student_course
+
+-- 4. 查询 C：只用第二列，跳过第一列 → 用不上索引！
+EXPLAIN SELECT * FROM enrollments WHERE course_id = 2;
+-- Seq Scan（全表扫描）
+```
+
+**解析**：
+复合索引 `(student_id, course_id)` 的 B-Tree 是先按 `student_id` 排序，`student_id` 相同的再按 `course_id` 排序。就像字典先按姓氏排、同姓再按名字排。
+
+- 查询 A `WHERE student_id = 1`：能定位到所有 `student_id = 1` 的区间，能用索引。
+- 查询 B `WHERE student_id = 1 AND course_id = 2`：先定位 `student_id = 1`，再在其中找 `course_id = 2`，两列都用上，最精准。
+- 查询 C `WHERE course_id = 2`：`course_id` 在索引里是"第二关键字"，没有先定位 `student_id` 的话，`course_id = 2` 的数据散落在索引的各个位置，没法高效定位，只能全表扫描。
+
+这就是**最左前缀原则**：复合索引只有从最左边的列开始连续使用时才生效。
+
+**思考题答案**：
+- 查询 C 用不上索引，因为跳过了最左列 `student_id`。
+- 如果经常需要 `WHERE course_id = ?` 单独查询，应该**单独为 `course_id` 建一个索引**，或者把复合索引的列顺序调整为 `(course_id, student_id)`（取决于哪个查询更频繁）。
+- 建复合索引时，把**最常用的查询条件列、区分度最高的列**放在最左边。
+
+```sql
+-- 实验完清理测试索引
+DROP INDEX idx_enroll_student_course;
+```
+
+---
+
 # 随堂解答：窗口函数进阶
 
-**题 62：保留明细并附加整体平均分**
+**题 66：保留明细并附加整体平均分**
+
 ```sql
 SELECT 
     student_id, 
@@ -1525,7 +1674,8 @@ FROM enrollments;
 **解析**：
 如果没有 `OVER`，单独写 `AVG(score)` 数据库会逼着你写 `GROUP BY course_id`，导致每门课最后被压成一行。用了窗口函数（并使用 `PARTITION BY course_id` 作为“隔板”），原来的个人选课明细一行没少，只是多出了一列该课的全局平均分。
 
-**题 63：实战分组内排名**
+**题 67：实战分组内排名**
+
 ```sql
 SELECT 
     student_id, 
@@ -1538,7 +1688,8 @@ WHERE score IS NOT NULL;
 **解析**：
 在每门课内部（`PARTITION BY course_id`），按照成绩从高到底（`ORDER BY score DESC`）排定 1,2,3 的名次（`ROW_NUMBER()`）。这是最常用的报表语法。
 
-**题 64：CTE 组合技 - 破解组内第一名提取难题**
+**题 68：CTE 组合技 - 破解组内第一名提取难题**
+
 ```sql
 -- 第 1 步：用 CTE 把带有排名的数据集准备好
 WITH ranked_scores AS (
@@ -1562,9 +1713,139 @@ WHERE r.rank_in_course = 1;
 
 ---
 
+**题 69：排名三兄弟对比实验（ROW_NUMBER vs RANK vs DENSE_RANK）**
+
+```sql
+SELECT
+    student_id,
+    score,
+    ROW_NUMBER() OVER (ORDER BY score DESC) AS rn,
+    RANK()       OVER (ORDER BY score DESC) AS rk,
+    DENSE_RANK() OVER (ORDER BY score DESC) AS dr
+FROM enrollments
+WHERE course_id = 1
+  AND score IS NOT NULL;
+```
+
+**解析**：
+这道题的核心是**直观感受三者在并列分数时的不同行为**。假设 `course_id = 1` 这门课有如下成绩：
+
+```text
+student_id=1, score=95
+student_id=2, score=95
+student_id=3, score=90
+student_id=4, score=85
+```
+
+查询结果会是：
+
+| student_id | score | rn | rk | dr |
+|---|---|---|---|---|
+| 1 | 95 | 1 | 1 | 1 |
+| 2 | 95 | 2 | 1 | 1 |
+| 3 | 90 | 3 | 3 | 2 |
+| 4 | 85 | 4 | 4 | 3 |
+
+- `ROW_NUMBER()`：哪怕分数相同，也强行给 1、2、3、4，绝不重复。适合需要**强制去重**的场景（如取每个用户最新一条记录）。
+- `RANK()`：两个 95 分并列第 1，下一个 90 分直接跳到第 3（因为前面占了两个名次）。这是**标准考试排名**。
+- `DENSE_RANK()`：两个 95 分并列第 1，下一个 90 分是第 2（不跳号）。这是**密集排名**。
+
+> 选择建议：企业中做"组内 Top N 去重"用 `ROW_NUMBER()`；做"考试排名/排行榜"用 `RANK()`；做"等级划分"（如分数段排名）用 `DENSE_RANK()`。
+
+---
+
+**题 70：用 LAG() 计算成绩环比变化**
+
+```sql
+SELECT
+    student_id,
+    course_id,
+    score,
+    LAG(score, 1) OVER (PARTITION BY student_id ORDER BY course_id) AS prev_score,
+    score - LAG(score, 1) OVER (PARTITION BY student_id ORDER BY course_id) AS score_diff
+FROM enrollments
+WHERE score IS NOT NULL;
+```
+
+**解析**：
+这道题的关键是理解 `LAG()` 的两个参数：
+
+```text
+LAG(score, 1)
+  ├── score     → 要取哪一列的值
+  └── 1         → 取前面第 1 行（写 2 就是前面第 2 行，省略默认是 1）
+```
+
+`PARTITION BY student_id` 确保我们只在**同一个学生内部**比较，不会把 A 学生的上一行和 B 学生混在一起。
+`ORDER BY course_id` 规定了课程的顺序，"上一门课"就是按 course_id 排序后的前一行。
+
+每个学生的第一门课，`LAG()` 返回 `NULL`（因为前面没有行了），所以 `score_diff` 也是 `NULL`——这是完全正常的，不是错误。
+
+> 这道题的模式可以直接迁移到企业场景：把 `score` 换成 `sales`，把 `course_id` 换成 `month`，就是标准的**环比增长率计算**：`(本月 - 上月) / 上月`。
+
+---
+
+**题 71：累计求和与移动平均（窗口帧 ROWS BETWEEN）**
+
+```sql
+SELECT
+    sale_date,
+    amount,
+    SUM(amount) OVER (ORDER BY sale_date) AS cumulative_amount,
+    AVG(amount) OVER (
+        ORDER BY sale_date
+        ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    ) AS moving_avg_3d
+FROM daily_sales;
+```
+
+**解析**：
+
+**累计求和 `cumulative_amount`**：
+写了 `ORDER BY sale_date` 但没写窗口帧时，PostgreSQL 默认的窗口帧是：
+
+```text
+RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+```
+
+也就是"从分区第一行到当前行"，所以 `SUM` 自然就是从第一天滚雪球累加到当天。这就是为什么不用写 `ROWS BETWEEN` 也能自动累计。
+
+**移动平均 `moving_avg_3d`**：
+`ROWS BETWEEN 2 PRECEDING AND CURRENT ROW` 明确指定窗口包含：
+
+```text
+当前行 + 前面 2 行 = 共 3 行
+```
+
+所以每一天的移动平均都是"当天 + 前两天"的平均值。前两天不足 2 行的（如第 1 天、第 2 天），有几行算几行，不会报错。
+
+> 窗口帧的常用写法：
+> - `ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW` → 从开头到当前行（累计）
+> - `ROWS BETWEEN 2 PRECEDING AND CURRENT ROW` → 前 2 行到当前行（3 日移动平均）
+> - `ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING` → 前 1 行到后 1 行（3 点中心平均）
+> - `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING` → 整个分区
+
+如果没有 `daily_sales` 表，可以用以下语句快速创建测试数据：
+
+```sql
+CREATE TABLE daily_sales (
+    sale_date DATE PRIMARY KEY,
+    amount NUMERIC(10, 2) NOT NULL
+);
+
+INSERT INTO daily_sales (sale_date, amount) VALUES
+    ('2024-01-01', 100.00),
+    ('2024-01-02', 150.00),
+    ('2024-01-03', 200.00),
+    ('2024-01-04', 120.00),
+    ('2024-01-05', 180.00);
+```
+
+---
+
 # 随堂解答：终极综合：56
 
-**题 65：全方位实战终极报表**
+**题 72：全方位实战终极报表**
 
 这是检验你是否通透的试金石。不要放过解析里的任何一个细节！
 

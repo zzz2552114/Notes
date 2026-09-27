@@ -2997,15 +2997,102 @@ ALTER TABLE orders ALTER COLUMN amount TYPE NUMERIC(10,2);
 ## 视图（VIEW）：保存查询的捷径
 
 ### 1. 是什么？
+
 视图是**一段被保存下来的 SQL 查询语句，并在数据库里被当做一张“虚拟表”来对待**。
+
 一旦建好，你就可以对这个视图使用 `SELECT * FROM 视图名`，就像查询真表一样。
 
+拆开看这个定义里有两个关键词：
+
+```text
+“被保存下来的 SQL 查询语句”  →  它本质上是一段 SELECT，不是数据
+“被当做一张虚拟表来对待”      →  你可以像查表一样查它，但它本身不存数据
+```
+
+所以视图和真表的区别是：
+
+| | 真表（TABLE） | 视图（VIEW） |
+|---|---|---|
+| 存不存数据 | 存，数据在硬盘上 | 不存，只存一段查询语句 |
+| 数据从哪来 | 直接存在表里 | 每次查询时当场去底层表现算 |
+| 能不能 INSERT | 能 | 简单视图能，复杂视图不能 |
+| 占不占硬盘空间 | 占（数据本身） | 几乎不占（只占语句那点空间） |
+
+一个非常实用的记忆法：
+
+```text
+视图 = 给一段复杂的 SELECT 起了个名字，以后用名字代替整段 SQL
+```
+
+就像你在 Excel 里给一个复杂公式定义了一个名称，以后直接用名称引用它，而不用每次重写公式。
+
+---
+
 ### 2. 为什么有这个东西？
-- **隐藏复杂逻辑（化繁为简）**：某个月度财务报表需要 8 个 `JOIN` 加一堆复杂的 `GROUP BY`。如果你每次查都重写一遍，容易写错又浪费时间。把它包装成一个视图，所有看报表的人只需 `SELECT * FROM finance_report_view` 即可。
-- **安全与权限隔离**：假设员工表 `employees` 里有薪水列、身份证号列。你不想把这个表暴露给实习生。你可以创建一个不含敏感列的视图 `CREATE VIEW public_emps AS SELECT id, name, department FROM employees`，然后只给实习生查这个视图的权限。
-- **兼容性隔离**：底层表结构大改了（字段重命名了等），为了不让上层的几十个应用代码跟着改，可以创建一个视图，名字和老表一样，里面的字段名 alias 回老名字，骗过应用代码。
+
+#### 用途一：隐藏复杂逻辑（化繁为简）
+
+某个月度财务报表需要 8 个 `JOIN` 加一堆复杂的 `GROUP BY`。如果你每次查都重写一遍，容易写错又浪费时间。
+
+把它包装成一个视图：
+
+```sql
+CREATE VIEW finance_report_view AS
+SELECT ... -- 8个JOIN + 复杂GROUP BY
+FROM ...;
+```
+
+所有看报表的人只需：
+
+```sql
+SELECT * FROM finance_report_view;
+```
+
+不用关心背后到底 JOIN 了几张表、过滤了什么条件。
+
+#### 用途二：安全与权限隔离
+
+假设员工表 `employees` 里有薪水列、身份证号列。你不想把这个表暴露给实习生。
+
+你可以创建一个不含敏感列的视图：
+
+```sql
+CREATE VIEW public_emps AS
+SELECT id, name, department
+FROM employees;
+```
+
+然后只给实习生查这个视图的权限：
+
+```sql
+GRANT SELECT ON public_emps TO intern_role;
+```
+
+实习生能看到姓名和部门，但永远看不到薪水和身份证号——因为视图里根本没有这两列。
+
+#### 用途三：兼容性隔离（底层表改了，上层代码不动）
+
+底层表结构大改了（字段重命名了等），为了不让上层的几十个应用代码跟着改，可以创建一个视图，名字和老表一样，里面的字段名 alias 回老名字，骗过应用代码。
+
+例如原来的表叫 `users`，有列 `username`。后来重构把表拆了，`username` 列移到了 `user_profiles` 表里。但老应用还在写 `SELECT username FROM users`。
+
+你可以建一个视图：
+
+```sql
+CREATE VIEW users AS
+SELECT u.id, p.username
+FROM user_accounts u
+JOIN user_profiles p ON u.id = p.user_id;
+```
+
+老应用完全不用改，继续 `SELECT username FROM users` 就能正常工作。
+
+---
 
 ### 3. 语法是什么？
+
+#### 最基本的创建语法
+
 ```sql
 CREATE VIEW 视图名称 AS
 SELECT 字段1, 字段2...
@@ -3013,8 +3100,51 @@ FROM 表名
 WHERE 条件...;
 ```
 
+#### 创建或替换（如果已存在则覆盖）
+
+```sql
+CREATE OR REPLACE VIEW 视图名称 AS
+SELECT ...;
+```
+
+> `OR REPLACE` 的意思是：如果这个名字的视图已经存在，就用新的定义替换掉它，而不是报错。这在迭代开发中非常常用——你改了视图逻辑，直接重跑这条语句就行。
+
+但要注意：`CREATE OR REPLACE VIEW` 对已有列有严格限制——已有列的**名字、顺序和数据类型**必须保持不变。不过，它**允许在列的末尾追加新列**。如果你需要删除列、在中间插入列、改变已有列的顺序或类型，就需要先 `DROP VIEW` 再 `CREATE VIEW`。
+
+#### 删除视图
+
+```sql
+DROP VIEW 视图名称;
+```
+
+如果视图不存在会报错，可以加 `IF EXISTS` 避免：
+
+```sql
+DROP VIEW IF EXISTS 视图名称;
+```
+
+#### 给视图的列起别名
+
+你可以在视图名后面直接指定列名：
+
+```sql
+CREATE VIEW student_grades (姓名, 课程, 分数) AS
+SELECT s.student_name, c.course_name, e.score
+FROM students s
+JOIN enrollments e ON s.student_id = e.student_id
+JOIN courses c ON e.course_id = c.course_id;
+```
+
+这样查出来的列名就是 `姓名`、`课程`、`分数`，而不是底层表的 `student_name` 等。
+
+> 注意：PostgreSQL 中用中文列名是可以的，但实际项目中建议还是用英文+下划线，避免编码和工具兼容性问题。
+
+---
+
 ### 4. 与题目无关的简单例子
-我们经常要查看哪些课程没人选：
+
+#### 例子一：查看哪些课程没人选
+
 ```sql
 CREATE VIEW empty_courses AS
 SELECT c.course_name
@@ -3026,14 +3156,207 @@ WHERE e.student_id IS NULL;
 SELECT * FROM empty_courses;
 ```
 
-### 5. 常见用法是什么？
-- 把带有各种业务过滤条件（如 `is_deleted = false`, `status = 'active'`）的基础查询封在视图里。
-- 把最核心的几张表 JOIN 好，作为一个宽表视图提供给数据分析师。
+#### 例子二：只看活跃学生
 
-### 6. 重要注意事项
-- **普通视图绝对不存数据！！**：当你在查询视图时，数据库底层是把视图背后的那段长 SQL 拿出来，跟你当前的查询拼接到一起，**当场去底层真实表里现查**的。所以，**视图不能提升哪怕一丁点查询性能**，它纯粹只是为了可维护性和安全性。
-- **能更新吗？**：非常简单的单表视图（没有聚合、没有 JOIN）是支持 `UPDATE / INSERT` 的，更改会自动透传到原表。但如果视图包含 `GROUP BY` 或复杂关联，通常是只读的。
-- **物化视图（Materialized View）**：这是 PostgreSQL 的高级功能。它和普通视图不同，它是真的把结果算出来存在硬盘上，查询极快！但原表数据更新时，它不会自动同步，需要人工执行 `REFRESH MATERIALIZED VIEW`。
+```sql
+CREATE VIEW active_students AS
+SELECT student_id, student_name, major, created_at
+FROM students
+WHERE is_active = TRUE;
+```
+
+以后任何查询只要想排除已退学的学生，直接 `FROM active_students` 就行，不用每次都写 `WHERE is_active = TRUE`。
+
+#### 例子三：把三表 JOIN 封装成成绩单宽表
+
+```sql
+CREATE VIEW transcript AS
+SELECT
+    s.student_name,
+    s.major,
+    c.course_name,
+    e.score,
+    e.enrolled_at
+FROM students s
+JOIN enrollments e ON s.student_id = e.student_id
+JOIN courses c ON e.course_id = c.course_id
+WHERE e.score IS NOT NULL;
+```
+
+老师查 90 分以上的成绩单：
+
+```sql
+SELECT * FROM transcript WHERE score >= 90;
+```
+
+查某个学生的全部成绩：
+
+```sql
+SELECT * FROM transcript WHERE student_name = 'Alice';
+```
+
+都不用再写 JOIN 了。
+
+---
+
+### 5. 常见用法是什么？
+
+- **把基础过滤条件封在视图里**：比如所有表都有 `is_deleted = false`、`status = 'active'` 这种软删除/状态过滤，写一个视图统一处理，避免每个查询都漏写。
+- **把核心几张表 JOIN 好做宽表**：数据分析师经常需要学生+选课+课程的关联数据，建一个视图一次性 JOIN 好，分析师直接查视图。
+- **给不同角色提供不同粒度的数据**：管理层看汇总视图，普通员工看明细视图，通过视图控制每个人能看到什么。
+- **兼容老代码**：表结构重构后，用视图模拟旧表结构，让上层应用零改动过渡。
+
+---
+
+### 6. 重要注意事项（最容易犯错的地方！）
+
+#### 注意一：普通视图绝对不存数据！！
+
+这是初学者最容易误解的一点。
+
+当你执行 `SELECT * FROM some_view` 时，数据库底层做的事情是：
+
+```text
+1. 把视图背后保存的那段长 SQL 拿出来
+2. 跟你当前写的查询拼接到一起
+3. 当场去底层真实表里现查
+```
+
+所以，**视图不能提升哪怕一丁点查询性能**。它纯粹只是为了可维护性和安全性。
+
+> 打个比方：视图就像你把一个复杂的搜索条件存成了浏览器书签。你点书签打开搜索，浏览器还是要当场去网上搜一遍，并不会因为你存了书签就搜得更快。
+
+如果你视图背后的 SQL 本身很慢（比如 8 个 JOIN 大表），那查视图一样慢，甚至可能因为拼接了额外条件导致优化器更难优化。
+
+#### 注意二：视图能更新吗？
+
+非常简单的单表视图（没有聚合、没有 JOIN、没有 DISTINCT、没有 UNION）是支持 `UPDATE / INSERT / DELETE` 的，更改会自动透传到原表。
+
+例如：
+
+```sql
+CREATE VIEW active_students AS
+SELECT student_id, student_name, major
+FROM students
+WHERE is_active = TRUE;
+
+-- 这个 UPDATE 会直接改 students 表
+UPDATE active_students
+SET major = 'Math'
+WHERE student_id = 1;
+```
+
+但如果视图包含 `GROUP BY`、`JOIN`、聚合函数、`DISTINCT` 等，通常就是**只读**的，你不能对它执行 `INSERT/UPDATE/DELETE`。
+
+PostgreSQL 会明确告诉你：
+
+```text
+ERROR: cannot update a view because it contains aggregates
+```
+
+#### 注意三：WITH CHECK OPTION——防止通过视图插入“看不见”的数据
+
+考虑这个视图：
+
+```sql
+CREATE VIEW active_students AS
+SELECT * FROM students WHERE is_active = TRUE;
+```
+
+你可以通过这个视图插入一个 `is_active = FALSE` 的学生吗？
+
+```sql
+INSERT INTO active_students (student_name, is_active)
+VALUES ('Bob', FALSE);
+```
+
+答案是：**默认可以**。插入成功了，但这个学生不会出现在 `active_students` 视图里（因为他不活跃），你“插进去就找不到了”。
+
+为了防止这种情况，PostgreSQL 提供了 `WITH CHECK OPTION`：
+
+```sql
+CREATE VIEW active_students AS
+SELECT * FROM students WHERE is_active = TRUE
+WITH CHECK OPTION;
+```
+
+现在如果你尝试插入 `is_active = FALSE` 的学生，数据库会直接报错：
+
+```text
+ERROR: new row violates check option for view "active_students"
+```
+
+> 记忆法：`WITH CHECK OPTION` = “通过这个视图插入或修改的数据，必须能被这个视图自己看到”。
+
+#### 注意四：视图可以嵌套，但别套太深
+
+视图可以基于另一个视图创建：
+
+```sql
+CREATE VIEW v1 AS SELECT ... FROM students;
+CREATE VIEW v2 AS SELECT ... FROM v1;
+CREATE VIEW v3 AS SELECT ... FROM v2;
+```
+
+这在语法上完全合法，但嵌套太深会带来两个问题：
+1. **调试困难**——出了问题要一层层剥开看底层到底查了什么。
+2. **优化器可能无法高效优化**——多层视图拼接后的 SQL 可能非常复杂，导致执行计划变差。
+
+经验法则：视图嵌套尽量不超过 2-3 层。
+
+#### 注意五：视图里的 ORDER BY 不可靠
+
+你可能想写：
+
+```sql
+CREATE VIEW sorted_students AS
+SELECT * FROM students ORDER BY student_name;
+```
+
+然后以为查这个视图出来的数据一定是按名字排好序的。
+
+**错！** SQL 标准规定，只有最外层查询的 `ORDER BY` 才保证排序。视图里的 `ORDER BY` 在很多数据库中会被忽略或不保证生效（PostgreSQL 允许但不推荐，因为当你对视图再做过滤或 JOIN 时，顺序就乱了）。
+
+正确做法是：查视图的时候再排序。
+
+```sql
+SELECT * FROM sorted_students ORDER BY student_name;
+```
+
+#### 注意六：物化视图（Materialized View）——真的存数据的视图
+
+这是 PostgreSQL 的高级功能。它和普通视图不同，它是**真的把查询结果算出来存在硬盘上**，查询极快！
+
+```sql
+CREATE MATERIALIZED VIEW sales_summary AS
+SELECT date, SUM(amount) AS total
+FROM orders
+GROUP BY date;
+```
+
+但原表数据更新时，它不会自动同步，需要人工执行：
+
+```sql
+REFRESH MATERIALIZED VIEW sales_summary;
+```
+
+所以物化视图适合：
+- 数据不经常变（比如每日统计、历史报表）
+- 查询本身非常慢，且需要反复查
+- 能容忍数据有一定延迟
+
+普通视图适合：
+- 数据实时性要求高
+- 主要为了简化查询和权限控制
+
+两者对比：
+
+| | 普通视图（VIEW） | 物化视图（MATERIALIZED VIEW） |
+|---|---|---|
+| 存不存数据 | 不存 | 存，结果集在硬盘上 |
+| 查询速度 | 取决于底层 SQL | 极快，直接读结果 |
+| 数据实时性 | 实时，每次现查 | 有延迟，需手动 REFRESH |
+| 适用场景 | 简化查询、权限控制 | 慢查询加速、报表预计算 |
 
 ---
 
@@ -3058,47 +3381,503 @@ SELECT * FROM empty_courses;
 
 ---
 
-## 索引（INDEX）与 EXPLAIN 分析
+**随堂练习 60：WITH CHECK OPTION 安全门实验**
 
-### 1. 是什么？
-**索引（Index）** 就像是书本背后的目录，或者字典里的部首检字表。在数据库里，它通常是一种称为 B-Tree（平衡树）的数据结构，独立存储在硬盘上。
-`EXPLAIN` 则是数据库提供的一个“透视镜”，它告诉你，数据库在执行你的 SQL 时，到底打不打算使用这本目录。
+创建一个名为 `active_students_check` 的视图，只包含 `is_active = TRUE` 的学生，选取 `student_id, student_name, major, is_active` 四列。要求：**通过这个视图插入或修改的数据，必须也能被这个视图自己看到**（提示：在视图定义末尾加上 `WITH CHECK OPTION`）。
 
-### 2. 为什么有这个东西？
-如果表里有 1000 万个学生，你要找 `email = 'bob@example.com'` 的人。没有索引，数据库只能使用最笨的办法：**全表扫描（Sequential Scan）**，从第 1 行读到第 1000 万行，这可能耗时好几秒。
-如果给 `email` 建了索引，数据库会去一棵高度优化的树里进行二分查找，也就是**索引扫描（Index Scan）**，只需要几次比对（几毫秒）就能精准拿到数据在硬盘上的物理位置。
-
-### 3. 语法是什么？
-```sql
--- 创建普通索引
-CREATE INDEX 索引名称 ON 表名 (列名);
-
--- 查看数据库执行计划
-EXPLAIN SELECT * FROM 表名 WHERE 某列 = '某个值';
-```
-
-### 4. 与题目无关的简单例子
-电商网站查找订单：
-```sql
-CREATE INDEX idx_orders_user_id ON orders(user_id);
--- 这样，用户在前端点击“我的订单”时，数据库能瞬间找出他买过的东西。
-EXPLAIN SELECT * FROM orders WHERE user_id = 12345;
-```
-
-### 5. 常见用法是什么？
-- 为经常放在 `WHERE` 后面做等值或范围查询的列建索引（如 `age > 20`, `created_at BETWEEN ...`）。
-- 为经常用于 `JOIN` 连接条件的列（如外键）建索引，极大加速多表查询。
-- 为经常需要排序的列（`ORDER BY created_at`）建索引，因为索引本身就是排好序的，数据库可以直接顺手牵羊免去临时排序的巨大开销。
-- `PRIMARY KEY` 和 `UNIQUE` 约束，数据库会自动在后台为你建好唯一索引。
-
-### 6. 重要注意事项（最容易犯错的地方！）
-- **索引的代价**：天下没有白吃的午餐。每一条插入、修改、删除操作（`INSERT/UPDATE/DELETE`），数据库不但要改表里的数据，还得顺带修改目录（维护这棵 B-Tree）。所以，**索引建得越多，写入速度就越慢，占用的硬盘空间也越庞大**。切忌给每个列都建索引！
-- **有索引 ≠ 一定会用索引**：这是无数新手的误区。如果你有一张仅有 10 个人的学生表，你为 `major` 建了索引。当你执行 `SELECT * FROM students WHERE major = 'CS'` 时，优化器会掐指一算：去翻目录、再按目录找原文的时间，还不如直接把这 10 行扫一遍快。于是它会主动放弃索引，强行走 `Seq Scan`。
-- **索引失效**：不要在索引列上做运算。例如 `WHERE YEAR(created_at) = 2023`，原本建立在 `created_at` 上的索引会直接失效！你应该改成 `WHERE created_at >= '2023-01-01'`。
+创建完成后，请依次完成以下操作并记录结果：
+1. 尝试通过这个视图插入一个 `is_active = FALSE` 的学生（姓名、专业自定），记录数据库返回了什么。
+2. 尝试通过这个视图把 Alice 的 `is_active` 改成 `FALSE`，记录数据库返回了什么。
+3. 去掉 `WITH CHECK OPTION` 重新创建该视图，再次执行上面两条插入/更新操作，这次能成功吗？成功后，这条数据还能在 `active_students_check` 视图里查询到吗？请自己实验验证并解释原因。
 
 ---
 
-**随堂练习 60：索引与 EXPLAIN 观察实验**
+**随堂练习 61：修改视图定义与视图嵌套**
+
+视图不是建完就不能改了。这道题练习修改视图的正确姿势，以及视图嵌套。
+
+假设题 58 中你创建的 `active_students_view` 选取了 `student_id, student_name, major` 三列，过滤条件是 `is_active = TRUE`。（如果你当时选了其他列，请相应调整。）
+
+1. **用 `CREATE OR REPLACE VIEW` 修改过滤条件（列不变）**：学校希望这个视图只显示成年学生。请在保持原有三列不变的前提下，使用 `CREATE OR REPLACE VIEW` 给视图增加 `age >= 18` 的过滤条件。修改后用 `SELECT * FROM active_students_view;` 验证。
+
+2. **用 `CREATE OR REPLACE VIEW` 在末尾追加列（合法操作）**：学校又希望这个视图能额外看到学生的 `email` 和 `created_at`。请使用 `CREATE OR REPLACE VIEW`，在原有三列**末尾**追加这两列（已有列的名字和顺序保持不变）。修改后用 `SELECT` 验证新列出现了。
+
+3. **尝试用 `CREATE OR REPLACE VIEW` 改变已有列的顺序（会报错）**：请尝试用 `CREATE OR REPLACE VIEW` 把 `major` 列移到 `student_name` 前面（改变已有列的顺序），观察 PostgreSQL 报什么错，并结合上面的知识点解释为什么。
+
+4. **用 `DROP VIEW` + `CREATE VIEW` 重新定义视图（改变列顺序）**：上面的操作失败了，因为 `CREATE OR REPLACE VIEW` 不能改变已有列的顺序。请先用 `DROP VIEW` 删除该视图，再用 `CREATE VIEW` 重新创建，这次把列顺序改成 `student_id, major, student_name, email, created_at`，过滤条件保持 `is_active = TRUE AND age >= 18`。创建后用 `SELECT` 验证。
+
+5. **视图嵌套**：基于修改后的 `active_students_view` 再创建一个名为 `cs_active_students` 的视图，只保留 `major = 'CS'` 的学生。创建后用 `SELECT * FROM cs_active_students;` 验证。
+
+6. 查询 `cs_active_students` 时，数据库底层实际查了几张表？请结合"视图不存数据"的知识思考答案。
+---
+
+## 索引（INDEX）与 EXPLAIN 分析
+
+### 1. 是什么？
+
+**索引（Index）** 就像是书本背后的目录，或者字典里的部首检字表。
+
+在数据库里，最常用的索引是一种称为 **B-Tree（平衡树）** 的数据结构，它独立存储在硬盘上，和表数据是分开存的。
+
+`EXPLAIN` 则是数据库提供的一个“透视镜”，它告诉你，数据库在执行你的 SQL 时，到底打不打算使用这本目录，以及打算怎么执行。
+
+#### B-Tree 到底长什么样？
+
+你不用去手写 B-Tree，但要理解它的核心特点：
+
+```text
+B-Tree 是一棵“排好序的平衡树”
+├── 所有叶子节点在同一层（所以叫“平衡”）
+├── 每个节点里存的是“索引列的值 + 指向表中对应行的指针”
+├── 查找时从根节点开始，每次比较后走左或右子树
+└── 因为是平衡的，不管找哪个值，比较次数都差不多（树的高度）
+```
+
+打个比方：你在字典里找“张”字。
+- 没有索引（全表扫描）：从字典第一页开始一页页翻，直到找到“张”。
+- 有 B-Tree 索引（部首检字）：先找部首“弓”（3画），翻到对应页码，再在里面找“张”，几步就到了。
+
+对于一张 1000 万行的表，B-Tree 的高度通常只有 3-4 层，意味着找任何一行最多只需要 3-4 次硬盘读取。而全表扫描可能要读几百万行。
+
+#### PostgreSQL 还有哪些索引类型？
+
+初学阶段你只需要知道 B-Tree 就够了，但了解一下其他类型有助于以后遇到时不慌：
+
+| 索引类型 | 适用场景 | 初学需要掌握吗 |
+|---|---|---|
+| B-Tree | 等值查询、范围查询、排序，最通用 | 必须掌握 |
+| Hash | 只支持等值查询（`=`），不支持范围 | 了解即可 |
+| GIN | 数组、全文搜索、JSONB 键值查询 | 以后用到再学 |
+| GiST | 地理空间数据、范围类型 | 以后用到再学 |
+| BRIN | 超大表、数据物理上有序（如时间序列） | 以后用到再学 |
+
+> 99% 的初学者场景，`CREATE INDEX` 默认创建的就是 B-Tree，完全够用。
+
+---
+
+### 2. 为什么有这个东西？
+
+如果表里有 1000 万个学生，你要找 `email = 'bob@example.com'` 的人。
+
+#### 没有索引：全表扫描（Sequential Scan）
+
+数据库只能使用最笨的办法：从第 1 行读到第 1000 万行，逐行比较 email 是不是 `'bob@example.com'`。
+
+```text
+读第1行 → 不是 → 读第2行 → 不是 → ... → 读第500万行 → 找到了！
+```
+
+这可能耗时好几秒，甚至几十秒。而且不管数据在第几行，平均都要扫一半。
+
+#### 有索引：索引扫描（Index Scan）
+
+数据库会去 B-Tree 里进行查找：
+
+```text
+根节点比较 → 走左子树 → 再比较 → 走右子树 → 叶子节点找到值 → 拿到行指针 → 去表里取数据
+```
+
+只需要几次比对（几毫秒）就能精准拿到数据在硬盘上的物理位置。
+
+#### 对比一下
+
+| | 全表扫描（Seq Scan） | 索引扫描（Index Scan） |
+|---|---|---|
+| 做法 | 一行一行读全表 | 先查 B-Tree 定位，再取数据 |
+| 小表（几十行） | 快，甚至更快 | 反而慢（翻目录的开销 > 直接读） |
+| 大表（百万行以上） | 慢 | 快 |
+| 取大部分数据时 | 合适 | 不合适（每条都要回表取数据） |
+| 取少量数据时 | 不合适 | 非常合适 |
+
+> 关键直觉：索引不是“让所有查询都变快”，而是“让从大量数据中找少量数据变得极快”。如果你要取表里 80% 的行，用索引反而更慢——因为每条都要先查树再回表，不如直接顺序读全表。
+
+---
+
+### 3. 语法是什么？
+
+#### 创建普通索引
+
+```sql
+CREATE INDEX 索引名称 ON 表名 (列名);
+```
+
+例如：
+
+```sql
+CREATE INDEX idx_students_email ON students(email);
+```
+
+#### 创建唯一索引
+
+唯一索引不但加速查询，还强制该列的值不能重复：
+
+```sql
+CREATE UNIQUE INDEX 索引名称 ON 表名 (列名);
+```
+
+> 注意：当你给列加 `PRIMARY KEY` 或 `UNIQUE` 约束时，PostgreSQL 会**自动**在后台帮你创建一个唯一索引。所以你不需要手动再建。
+
+#### 创建复合索引（多列索引）
+
+```sql
+CREATE INDEX 索引名称 ON 表名 (列1, 列2, ...);
+```
+
+例如：
+
+```sql
+CREATE INDEX idx_enrollments_student_course
+ON enrollments(student_id, course_id);
+```
+
+复合索引有一个非常重要的规则——**最左前缀原则**，后面注意事项会详细讲。
+
+#### 创建部分索引（只索引满足条件的行）
+
+```sql
+CREATE INDEX 索引名称 ON 表名 (列名)
+WHERE 条件;
+```
+
+例如，你只想给活跃学生的 email 建索引（因为已退学的学生几乎不会被查）：
+
+```sql
+CREATE INDEX idx_active_students_email
+ON students(email)
+WHERE is_active = TRUE;
+```
+
+部分索引更小、更快、维护成本更低，非常适合“只查某一类数据”的场景。
+
+#### 创建表达式索引（对函数/表达式的结果建索引）
+
+```sql
+CREATE INDEX 索引名称 ON 表名 (表达式);
+```
+
+例如，你经常按邮箱的小写形式查询（避免大小写问题）：
+
+```sql
+CREATE INDEX idx_students_lower_email
+ON students(LOWER(email));
+```
+
+这样 `WHERE LOWER(email) = 'bob@example.com'` 就能用上索引了。
+
+> 这正好对应后面“索引失效”里说的“不要在索引列上做函数”——如果你确实需要用函数查询，那就给函数表达式建索引，而不是给原列建索引。
+
+#### 删除索引
+
+```sql
+DROP INDEX 索引名称;
+```
+
+避免报错可以加 `IF EXISTS`：
+
+```sql
+DROP INDEX IF EXISTS idx_students_email;
+```
+
+#### 查看表上有哪些索引
+
+在 PostgreSQL 中：
+
+```sql
+-- 方法一：用系统视图查
+SELECT indexname, indexdef
+FROM pg_indexes
+WHERE tablename = 'students';
+
+-- 方法二：在 psql 里用 \d 表名
+\d students
+```
+
+---
+
+### 4. EXPLAIN：怎么看执行计划？
+
+`EXPLAIN` 是你和数据库优化器对话的工具。它不会真的执行查询，只是告诉你“如果执行，我打算这么干”。
+
+#### 基本用法
+
+```sql
+EXPLAIN SELECT * FROM students WHERE email = 'bob@example.com';
+```
+
+输出大概长这样：
+
+```text
+Index Scan using idx_students_email on students
+   Index Cond: (email = 'bob@example.com'::text)
+```
+
+#### EXPLAIN ANALYZE：真的跑一遍，给你真实数据
+
+```sql
+EXPLAIN ANALYZE SELECT * FROM students WHERE email = 'bob@example.com';
+```
+
+`EXPLAIN ANALYZE` 会**实际执行**这条 SQL，然后告诉你每一步花了多少时间、实际返回了多少行。这是排查慢查询最有用的工具。
+
+> 注意：`EXPLAIN ANALYZE` 对 `SELECT` 是安全的，但如果是 `UPDATE/DELETE`，它会真的修改数据！对写操作要用 `EXPLAIN ANALYZE` 时要格外小心，或者包在事务里执行完再 ROLLBACK。
+
+#### 执行计划输出怎么读？
+
+看一个典型输出：
+
+```text
+Hash Join  (cost=100.00..500.00 rows=1000 width=100)
+  Hash Cond: (e.student_id = s.student_id)
+  ->  Seq Scan on enrollments e  (cost=0.00..200.00 rows=5000 width=20)
+  ->  Hash  (cost=80.00..80.00 rows=1000 width=80)
+        ->  Seq Scan on students s  (cost=0.00..80.00 rows=1000 width=80)
+              Filter: (is_active = true)
+```
+
+读执行计划的要点：
+
+1. **从最内层、最缩进的地方开始读**，那是最先执行的步骤。上面的例子中，先扫 `students` 表（过滤活跃学生），把结果放进 Hash 表，同时扫 `enrollments` 表，然后做 Hash Join。
+
+2. **扫描类型是关键**：
+   - `Seq Scan` = 全表扫描，没有用索引
+   - `Index Scan` = 用了索引，先查树再回表取数据
+   - `Index Only Scan` = 只用索引就够了，不用回表（最快！说明查询的列都在索引里）
+   - `Bitmap Index Scan` + `Bitmap Heap Scan` = 先用索引建位图，再批量回表取数据（适合取中等量数据）
+
+3. **`cost` 是估算成本**，不是真实时间。第一个数字是启动成本，第二个是总成本。数字越小越好，但主要用来对比不同执行计划，不用纠结绝对值。
+
+4. **`rows` 是估算返回行数**。如果估算行数和实际行数差很多（比如估算 10 行实际 10000 行），说明统计信息过期了，优化器可能选错执行计划。这时候可以跑 `ANALYZE 表名;` 更新统计信息。
+
+5. **`Filter` vs `Index Cond`**：
+   - `Index Cond` = 用索引直接过滤的条件（好，说明索引起作用了）
+   - `Filter` = 取出行后再过滤的条件（如果过滤掉大量行，说明索引没覆盖到这个条件）
+
+---
+
+### 5. 与题目无关的简单例子
+
+#### 例子一：电商网站查找订单
+
+```sql
+CREATE INDEX idx_orders_user_id ON orders(user_id);
+
+-- 用户在前端点击“我的订单”时，数据库能瞬间找出他买过的东西
+EXPLAIN SELECT * FROM orders WHERE user_id = 12345;
+```
+
+#### 例子二：按时间范围查询
+
+```sql
+CREATE INDEX idx_orders_created_at ON orders(created_at);
+
+-- B-Tree 天然支持范围查询
+EXPLAIN SELECT * FROM orders
+WHERE created_at >= '2024-01-01'
+  AND created_at < '2024-02-01';
+```
+
+#### 例子三：复合索引加速多条件查询
+
+```sql
+CREATE INDEX idx_orders_user_status ON orders(user_id, status);
+
+-- 两个条件都能用上复合索引
+EXPLAIN SELECT * FROM orders
+WHERE user_id = 12345 AND status = 'shipped';
+```
+
+---
+
+### 6. 常见用法是什么？
+
+- **为经常放在 `WHERE` 后面做等值或范围查询的列建索引**：如 `email = '...'`、`age > 20`、`created_at BETWEEN ...`。
+- **为经常用于 `JOIN` 连接条件的列建索引**：如外键 `student_id`、`course_id`。多表 JOIN 时，如果连接列没有索引，数据库只能做嵌套循环全表扫描，极慢。
+- **为经常需要排序的列建索引**：`ORDER BY created_at`。因为 B-Tree 索引本身就是排好序的，数据库可以直接顺着索引读，免去临时排序的巨大开销。
+- **`PRIMARY KEY` 和 `UNIQUE` 约束会自动建索引**：不用你手动建，建了也是重复。
+
+---
+
+### 7. 重要注意事项（最容易犯错的地方！）
+
+#### 注意一：索引的代价——天下没有白吃的午餐
+
+每一条插入、修改、删除操作（`INSERT/UPDATE/DELETE`），数据库不但要改表里的数据，还得顺带修改所有相关的索引（维护每一棵 B-Tree）。
+
+所以：
+
+```text
+索引建得越多
+├── 写入速度越慢（每次写都要维护多棵树）
+├── 占用的硬盘空间越庞大（索引本身也要存）
+└── 优化器选择执行计划时越纠结（选项太多反而可能选错）
+```
+
+**切忌给每个列都建索引！** 一个表有 3-5 个精心设计的索引通常就够了。
+
+> 经验法则：先写查询，再根据查询模式建索引。而不是先建一堆索引再写查询。
+
+#### 注意二：有索引 ≠ 一定会用索引
+
+这是无数新手的误区。
+
+如果你有一张仅有 10 个人的学生表，你为 `major` 建了索引。当你执行：
+
+```sql
+SELECT * FROM students WHERE major = 'CS';
+```
+
+优化器会掐指一算：
+
+```text
+去翻目录（读B-Tree）→ 拿到行指针 → 按指针去表里取数据
+vs
+直接把这10行扫一遍
+```
+
+对于只有 10 行的表，全表扫描可能只需要一次硬盘读取（一页就装下了），而索引扫描要先读索引页再读数据页，反而更慢。
+
+于是优化器会主动放弃索引，强行走 `Seq Scan`。
+
+> 这不是 bug，这是优化器在帮你选最快的方案。索引是给大表用的，小表全表扫描就是最优解。
+
+优化器做决策依赖的是**统计信息**。如果统计信息不准（比如表刚导入大量数据但没跑 `ANALYZE`），优化器也可能选错。这时候可以手动执行：
+
+```sql
+ANALYZE 表名;
+```
+
+来更新统计信息。
+
+#### 注意三：索引失效的常见场景（重点中的重点！）
+
+建了索引但查询没用到，90% 的情况是以下几种：
+
+##### 场景 1：在索引列上用函数或运算
+
+```sql
+-- 索引失效！YEAR(created_at) 是函数，不是裸列
+WHERE YEAR(created_at) = 2023
+
+-- 正确写法：把函数挪到值那边，保持列是裸的
+WHERE created_at >= '2023-01-01'
+  AND created_at < '2024-01-01'
+```
+
+```sql
+-- 索引失效！age + 1 是运算
+WHERE age + 1 = 20
+
+-- 正确写法
+WHERE age = 19
+```
+
+> 记忆法：**索引列必须是“裸”的，不能被函数包着，不能参与运算。** 如果你确实需要按函数查，就建表达式索引（前面讲过）。
+
+##### 场景 2：隐式类型转换
+
+```sql
+-- 如果 student_id 是 INTEGER 类型，你传了字符串
+WHERE student_id = '123'
+```
+
+PostgreSQL 通常会自动转换，但某些数据库（如 MySQL）中这会导致索引失效。养成习惯：**查询参数的类型和列的类型保持一致**。
+
+##### 场景 3：LIKE 左模糊
+
+```sql
+-- 索引失效！通配符在开头，B-Tree 没法定位
+WHERE email LIKE '%@example.com'
+
+-- 索引有效！通配符在结尾，可以用前缀匹配
+WHERE email LIKE 'bob%'
+```
+
+> B-Tree 是按值排序的，`'bob%'` 可以定位到以 'bob' 开头的区间，但 `'%@example.com'` 没有固定前缀，只能全表扫。
+
+##### 场景 4：OR 连接的条件中有一列没索引
+
+```sql
+WHERE email = 'bob@example.com' OR phone = '12345678'
+```
+
+如果 `email` 有索引但 `phone` 没有，数据库可能干脆全表扫描，因为要满足 OR 就得把所有行都检查一遍。
+
+解决办法：给 `phone` 也建索引，或者用 `UNION` 改写。
+
+##### 场景 5：NOT / != / <>
+
+```sql
+WHERE status != 'active'
+WHERE NOT status = 'active'
+```
+
+这种“不等于”查询通常无法有效使用 B-Tree 索引，因为结果集可能很大。优化器往往选择全表扫描。
+
+##### 场景 6：复合索引不满足最左前缀
+
+复合索引 `(a, b, c)` 相当于建了三个索引：`(a)`、`(a, b)`、`(a, b, c)`。
+
+```sql
+-- 能用索引
+WHERE a = 1
+WHERE a = 1 AND b = 2
+WHERE a = 1 AND b = 2 AND c = 3
+
+-- 不能用索引（跳过了最左列 a）
+WHERE b = 2
+WHERE b = 2 AND c = 3
+WHERE c = 3
+```
+
+> 这就是“最左前缀原则”：复合索引只有从最左边的列开始连续使用时才生效。建复合索引时，把最常用的查询条件列放在最左边。
+
+#### 注意四：索引选择性（Selectivity）
+
+选择性 = 不重复值的数量 / 总行数。
+
+- `email` 列：几乎每个人都不一样，选择性接近 1 → **非常适合建索引**
+- `gender` 列：只有男/女两个值，选择性约 0.0000002 → **不适合建索引**
+
+为什么？因为如果一个条件能匹配表里 50% 的行（比如 `gender = '女'`），用索引逐条回表取数据反而比全表扫描慢。优化器会直接放弃索引。
+
+> 经验法则：**区分度高的列才值得建索引。** 布尔列、性别列、状态列（只有两三个值）通常不值得单独建索引，但可以和其他列组成复合索引。
+
+#### 注意五：索引和 ORDER BY
+
+如果你的查询既有 `WHERE` 又有 `ORDER BY`，一个好的索引可以同时满足两者：
+
+```sql
+CREATE INDEX idx_students_major_created ON students(major, created_at DESC);
+
+-- 这个查询可以直接用索引，既过滤又排序，完全不需要额外排序
+SELECT * FROM students
+WHERE major = 'CS'
+ORDER BY created_at DESC
+LIMIT 10;
+```
+
+因为 B-Tree 里 `(major, created_at)` 本身就是先按 major 排、major 相同再按 created_at 排的，数据库顺着索引读就是排好序的。
+
+#### 注意六：索引和 JOIN
+
+多表 JOIN 时，**被驱动表的连接列一定要有索引**。
+
+```sql
+SELECT *
+FROM orders o
+JOIN customers c ON o.customer_id = c.customer_id
+WHERE o.created_at >= '2024-01-01';
+```
+
+假设数据库先扫 `orders` 表（用 `created_at` 索引过滤出今年的订单），然后对每个订单去 `customers` 表里找对应的客户。这时候 `customers.customer_id` 有主键索引（自动建的），查找极快。
+
+但如果连接列没有索引，数据库对每个订单都要全表扫一遍 `customers`，这叫“嵌套循环连接”，慢到无法接受。
+
+> 所以：**外键列几乎总是应该建索引。** PostgreSQL 不会自动给外键建索引（主键会自动建，但外键不会），需要你手动建。
+
+---
+
+**随堂练习 62：索引与 EXPLAIN 观察实验**
 
 我们来做个实验体会优化器的聪明程度：
 1. 尚未建索引时，使用 `EXPLAIN SELECT * FROM students WHERE major = 'CS';` 观察查询计划，记录下扫描类型（应该是 Seq Scan）。
@@ -3108,7 +3887,7 @@ EXPLAIN SELECT * FROM orders WHERE user_id = 12345;
 
 ---
 
-**随堂练习 61：如何骗过优化器强制看 Index Scan？**
+**随堂练习 63：如何骗过优化器强制看 Index Scan？**
 
 我们刚才的数据太少了，优化器不屑于用索引。
 要强行看到索引扫描，我们可以关闭全表扫描的倾向。在 PostgreSQL 中（可以在 DataGrip 控制台或 psql 里执行）：
@@ -3119,76 +3898,506 @@ EXPLAIN SELECT * FROM orders WHERE user_id = 12345;
 
 ---
 
+**随堂练习 64：索引失效实验——函数是索引的杀手**
+
+企业中最常见的慢查询原因之一就是"在索引列上用了函数"。请亲手实验验证：
+
+1. 为 `students` 表的 `student_name` 列创建一个普通索引。
+2. 写一条查询：找出名字叫 `Alice` 的学生。要求 `student_name` 列保持"裸列"状态（不被函数包裹），直接等值匹配。用 `EXPLAIN` 查看执行计划，记录扫描类型。
+3. 再写一条查询：同样找出名字叫 `alice`（全小写）的学生，但这次在 `WHERE` 中对 `student_name` 使用 `LOWER()` 函数后再比较。用 `EXPLAIN` 查看执行计划，记录扫描类型。
+4. 对比两者：为什么第二种写法用不上第 1 步创建的索引？
+5. 进阶：如果你确实需要经常按小写名字查询，除了改写条件，还可以用什么索引来加速？请创建它并验证效果。
+
+> 数据太少时优化器可能依然走 Seq Scan，可以用 `SET enable_seqscan = OFF;` 强制看索引效果，实验完记得 `SET enable_seqscan = ON;`
+
+**随堂练习 65：复合索引与最左前缀原则**
+
+复合索引的列顺序至关重要。请亲手验证"最左前缀原则"：
+
+1. 为 `students` 表创建一个复合索引 `idx_students_major_age`，包含列 `(major, age)`。
+2. 分别写以下三条查询，并用 `EXPLAIN` 查看执行计划，**重点记录每条查询的 `Index Cond` 里包含哪些列**：
+   - 查询 A：只按 `major = 'CS'` 筛选
+   - 查询 B：按 `major = 'CS' AND age >= 20` 筛选
+   - 查询 C：只按 `age >= 20` 筛选（跳过第一列）
+3. 思考：
+   - 查询 A 和 B 的 `Index Cond` 里包含 `major` 吗？这说明什么？
+   - 查询 C 的 `Index Cond` 里包含 `major` 吗？如果它依然显示了 `Index Scan`，请仔细看：它是利用 `major` 定位到了索引的某个范围，还是**从头到尾扫描了整个索引**再用 `age` 过滤？（提示：小表数据量太少时，优化器可能觉得"扫整个小索引"比"扫全表"还便宜，于是选择了全索引扫描。这并不代表最左前缀失效了——判断是否真正利用了最左前缀，关键看 `Index Cond` 里有没有最左列的定位条件。）
+   - 如果业务上经常需要只按 `age` 筛选，应该怎么办？
+   - 建复合索引时，列的顺序应该根据什么决定？
+4. 实验完用 `DROP INDEX` 清理测试索引。
+---
+
 ## 进阶巅峰：窗口函数（Window Functions）
 
 ### 1. 是什么？
+
 窗口函数是 SQL 标准中极其强大的一部分，它可以**在不“压缩/折叠”原有行的前提下，对一系列与当前行相关的行集合（称为“窗口”）执行聚合计算或排名计算。**
 
+拆开看这个定义里的两个关键词：
+
+```text
+“不压缩/折叠原有行”  →  原来有多少行，结果还是多少行，不会像 GROUP BY 那样把多行揉成一行
+“与当前行相关的行集合” →  对每一行来说，都有一个属于它的“窗口”，窗口里是和它相关的其他行
+```
+
+所以窗口函数的执行逻辑是：
+
+```text
+对结果集中的每一行：
+  1. 找到属于这一行的“窗口”（一组相关的行）
+  2. 在这个窗口上执行计算（求和、排名、取上一行等）
+  3. 把计算结果作为这一行的一个新列
+```
+
+> 打个比方：`GROUP BY` 就像把全班同学按班级分成几组，每组只报一个平均分（每组只剩一行）。窗口函数则是让每个同学都站在原地不动，然后在每个人旁边贴一张纸条，上面写着“你们班的平均分是多少”——人一个没少，每人多了一条信息。
+
+---
+
 ### 2. 为什么有这个东西？
+
 在没有窗口函数时，如果我们用 `GROUP BY`，它会把多行“揉碎”压缩成一行。
+
 例如你想算：“全班所有人的明细成绩单，并且要在每人成绩旁边附上全班的平均分。”
-如果你用 `GROUP BY` 求了平均分，人的名字就看不到了；如果你不想丢掉名字，你就只能写个子查询查平均分，然后再和原表 JOIN 起来，极为麻烦！
-窗口函数让你“鱼与熊掌兼得”：**既保留了明细，又计算了宏观聚合指标**。
+
+#### 没有窗口函数的写法（麻烦！）
+
+如果你用 `GROUP BY` 求了平均分，人的名字就看不到了：
+
+```sql
+-- 这样只能看到每门课的平均分，看不到每个人的明细
+SELECT course_id, AVG(score) AS course_avg
+FROM enrollments
+GROUP BY course_id;
+```
+
+如果你不想丢掉名字，就只能写个子查询查平均分，然后再和原表 JOIN 起来：
+
+```sql
+SELECT e.student_id, e.course_id, e.score, t.course_avg
+FROM enrollments e
+JOIN (
+    SELECT course_id, AVG(score) AS course_avg
+    FROM enrollments
+    GROUP BY course_id
+) t ON e.course_id = t.course_id;
+```
+
+极为麻烦，而且要扫两遍表。
+
+#### 有了窗口函数的写法（简洁！）
+
+```sql
+SELECT
+    student_id, course_id, score,
+    AVG(score) OVER (PARTITION BY course_id) AS course_avg
+FROM enrollments;
+```
+
+一行搞定，表只扫一遍。
+
+窗口函数让你“鱼与熊掌兼得”：**既保留了明细，又计算了宏观聚合指标。**
+
+---
 
 ### 3. 语法是什么？
+
 ```sql
 函数名(...) OVER (
-    [PARTITION BY 分组列] 
-    [ORDER BY 排序列]
+    [PARTITION BY 分组列]
+    [ORDER BY 排序列 [ASC|DESC]]
+    [ROWS/RANGE BETWEEN ... AND ...]
 )
 ```
-- **函数名**：可以是普通的聚合函数（如 `SUM`, `AVG`, `COUNT`），也可以是专用的排名函数（如 `ROW_NUMBER()`, `RANK()`），或是位移函数（`LEAD()`, `LAG()`）。
-- **PARTITION BY**：相当于窗口函数里的 `GROUP BY`，把数据划分成几个独立的小隔间分别计算。如果不写，就把整个结果集当做一个大窗口。
-- **ORDER BY**：规定在计算这一小隔间内的数据时，按什么顺序来算（对于排名、累计求和特别重要）。
 
-### 4. 与题目无关的简单例子
-**累计求和**：假设有个每日销售额表，我想看每一天的当日营业额，以及“从第一天截至当日的累计总营业额”：
+拆开看每个部分：
+
+#### 函数名
+
+可以是三类函数：
+
+| 类别 | 代表函数 | 作用 |
+|---|---|---|
+| 聚合函数 | `SUM`, `AVG`, `COUNT`, `MIN`, `MAX` | 在窗口内做聚合 |
+| 排名函数 | `ROW_NUMBER()`, `RANK()`, `DENSE_RANK()` | 在窗口内排名 |
+| 位移函数 | `LAG()`, `LEAD()` | 取窗口内前/后第 N 行的值 |
+
+#### PARTITION BY（分区）
+
+相当于窗口函数里的 `GROUP BY`，把数据划分成几个独立的小隔间分别计算。
+
+```text
+PARTITION BY course_id
+  → 把所有选课记录按课程分成几个隔间
+  → 每个隔间内独立计算平均分、排名等
+  → 隔间之间互不影响
+```
+
+如果不写 `PARTITION BY`，就把整个结果集当做一个大窗口。
+
+#### ORDER BY（排序）
+
+规定在每个分区内，数据按什么顺序排列。对于排名、累计求和特别重要。
+
+```text
+ORDER BY score DESC
+  → 在每个分区内按成绩从高到低排
+  → ROW_NUMBER() 就按这个顺序给 1,2,3...
+  → SUM() OVER (ORDER BY ...) 就按这个顺序逐行累加
+```
+
+#### ROWS/RANGE BETWEEN（窗口帧）
+
+这是高级用法，定义“窗口到底包含哪些行”。默认情况下：
+
+- 写了 `ORDER BY`：窗口帧是“从分区第一行到当前行”（适合累计求和）
+- 没写 `ORDER BY`：窗口帧是“整个分区”（适合整体聚合）
+
+你可以手动指定，比如移动平均：
+
 ```sql
-SELECT 
-    date, 
+ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+-- 包含：当前行 + 前面2行，共3行
+```
+
+这个后面注意事项会详细讲。
+
+---
+
+### 4. 三大类窗口函数详解
+
+#### 第一类：聚合窗口函数
+
+把普通的聚合函数加上 `OVER()`，就变成了窗口函数：
+
+```sql
+SELECT
+    student_id, course_id, score,
+    AVG(score) OVER (PARTITION BY course_id) AS course_avg,
+    COUNT(*) OVER (PARTITION BY course_id) AS course_student_count,
+    MAX(score) OVER (PARTITION BY course_id) AS course_max_score
+FROM enrollments
+WHERE score IS NOT NULL;
+```
+
+每一行都附带了自己所在课程的平均分、人数、最高分，但原始明细一行没少。
+
+#### 第二类：排名函数三兄弟（重点！）
+
+这是最容易混淆的地方，必须搞清楚三者的区别。
+
+假设有如下成绩（同一门课）：
+
+```text
+Alice: 95
+Bob:   95
+Carol: 90
+Dave:  85
+```
+
+| 函数 | 结果 | 特点 |
+|---|---|---|
+| `ROW_NUMBER()` | 1, 2, 3, 4 | 强制连续编号，并列也强行分出先后 |
+| `RANK()` | 1, 1, 3, 4 | 并列占名次，下一个名次跳号 |
+| `DENSE_RANK()` | 1, 1, 2, 3 | 并列占名次，下一个名次不跳号 |
+
+记忆法：
+
+```text
+ROW_NUMBER()  →  运动员编号，绝不重复
+RANK()        →  考试排名，并列第一后下一个是第三名
+DENSE_RANK()  →  密集排名，并列第一后下一个还是第二名
+```
+
+代码示例：
+
+```sql
+SELECT
+    student_name, score,
+    ROW_NUMBER() OVER (ORDER BY score DESC) AS rn,
+    RANK()       OVER (ORDER BY score DESC) AS rk,
+    DENSE_RANK() OVER (ORDER BY score DESC) AS dr
+FROM scores;
+```
+
+#### 第三类：位移函数 LAG / LEAD
+
+`LAG(col, n)` 取当前行**前面**第 n 行的值，`LEAD(col, n)` 取当前行**后面**第 n 行的值。
+
+最经典的用途是算环比增长率：
+
+```sql
+SELECT
+    month,
+    sales,
+    LAG(sales, 1) OVER (ORDER BY month) AS prev_month_sales,
+    ROUND(
+        (sales - LAG(sales, 1) OVER (ORDER BY month))
+        / LAG(sales, 1) OVER (ORDER BY month) * 100,
+        2
+    ) AS growth_rate_pct
+FROM monthly_sales;
+```
+
+> 第一行没有“上一行”，所以 `LAG` 返回 `NULL`，增长率也是 `NULL`，这是正常的。
+
+---
+
+### 5. 与题目无关的简单例子
+
+#### 例子一：累计求和
+
+假设有个每日销售额表，我想看每一天的当日营业额，以及“从第一天截至当日的累计总营业额”：
+
+```sql
+SELECT
+    date,
     daily_sales,
     SUM(daily_sales) OVER (ORDER BY date) AS cumulative_sales
 FROM sales;
 ```
+
 由于写了 `ORDER BY date`，`SUM` 会变成一行行往下滚雪球式累加。
 
-### 5. 常见用法是什么？
-- **携带整体统计数据**：如上面说的不折叠行附带平均分。
-- **分组内排名（Top N 问题）**：例如查询“每个班级里考试排名前 3 的学生”。用 `ROW_NUMBER()` 函数。
-- **同比/环比分析**：使用 `LAG(sale, 1) OVER (ORDER BY month)`，可以让当前行直接读取到“上一行”也就是上个月的销售额，从而轻松计算出环比增长率。
+#### 例子二：移动平均（3 日滑动平均）
 
-### 6. 重要注意事项
-- **执行顺序处于最末端**：窗口函数的计算发生在 `WHERE`, `GROUP BY`, `HAVING` 全部执行完毕之后，仅仅在最终返回给 `SELECT` 显示之前！
-- **巨大的坑**：因为上面这一条规则，**你绝不能把窗口函数写在 `WHERE` 子句里过滤数据！！** 比如你想查排名第 1 的人，你写 `WHERE ROW_NUMBER() OVER(...) = 1`，数据库会直接报错。正确的做法是：**必须把窗口函数包在一个 CTE 或子查询里算好并起了别名，然后在外层通过 WHERE 去过滤。**
+```sql
+SELECT
+    date,
+    daily_sales,
+    AVG(daily_sales) OVER (
+        ORDER BY date
+        ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+    ) AS moving_avg_3d
+FROM sales;
+```
+
+每一天的移动平均 = 当天 + 前两天 的平均值。前两天不足 2 行的，有几行算几行。
+
+#### 例子三：排名三兄弟对比
+
+```sql
+SELECT
+    student_name,
+    score,
+    ROW_NUMBER() OVER (ORDER BY score DESC) AS rn,
+    RANK()       OVER (ORDER BY score DESC) AS rk,
+    DENSE_RANK() OVER (ORDER BY score DESC) AS dr
+FROM exam_scores;
+```
+
+跑一下就能直观看到三者在并列成绩时的不同编号方式。
+
+### 例子四：累计加权平均 / 移动加权平均
+
+如果要做“从第一行累计到当前行”的加权平均：
+
+```sql
+SELECT
+    course_id,
+    created_at,
+    score,
+    weight,
+    SUM(score * weight) OVER (
+        PARTITION BY course_id
+        ORDER BY created_at
+        ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+    )
+    /
+    NULLIF(
+        SUM(weight) OVER (
+            PARTITION BY course_id
+            ORDER BY created_at
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+        ),
+        0
+    ) AS running_weighted_avg
+FROM enrollments;
+```
+
+移动加权平均也类似，只改窗口帧：
+
+```sql
+ROWS BETWEEN 2 PRECEDING AND CURRENT ROW
+```
+
+表示当前行 + 前两行，共 3 行。
+
+注意：**分子和分母的窗口定义必须完全一致**，否则一个是累计、一个是整体，结果就没意义。
 
 ---
 
-**随堂练习 62：实战 - 保留明细的同时算平均分**
+### 6. 常见用法是什么？
 
-查询 `enrollments` 表中的所有选课记录，输出：`student_id`, `course_id`, `score`。
-同时新增一列 `course_avg`，要求使用窗口函数计算出**该门课（分组依据）的整体平均分**，以便知道这个学生有没有拖后腿。
-
----
-
-**随堂练习 63：实战 - 组内排名**
-
-依然是查询 `enrollments` 表。
-请输出 `student_id`, `course_id`, `score`。
-并要求在 `course_id` 内部进行分组划分，按照 `score` 从高到低排序，使用 `ROW_NUMBER()` 产生一列新数据 `rank_in_course`。
-（这样你就知道每个人在这门课里的名次了）。
-*注意，要排除那些没有成绩的记录，所以在 `WHERE` 里加上 `score IS NOT NULL`。*
+- **携带整体统计数据**：不折叠行附带平均分、最高分、人数等。
+- **分组内排名（Top N 问题）**：查询“每个班级里考试排名前 3 的学生”，用 `ROW_NUMBER()` + CTE 过滤。
+- **同比/环比分析**：用 `LAG(sale, 1) OVER (ORDER BY month)` 取上个月销售额，计算环比增长率。
+- **累计求和/移动平均**：用 `SUM OVER (ORDER BY ...)` 做累计，用 `ROWS BETWEEN` 做滑动窗口。
+- **去重取最新**：用 `ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY created_at DESC)` 给每个用户的记录编号，取 rn=1 就是最新一条。
 
 ---
 
-**随堂练习 64：进阶综合挑战（CTE + 窗口函数过滤）**
+### 7. 重要注意事项（最容易犯错的地方！）
 
-领导要求：找出“所有课程成绩中，只要他在该门课排名第 1 的记录，就给我列出来”。
-结合刚才我们说过的“巨大坑的解法”：
-1. **写一个 CTE**（比如叫 `ranked_scores`），里面使用刚才 55.1 题的代码生成带有 `rank_in_course` 的数据。
-2. **在主查询中**，`SELECT * FROM ranked_scores`，并通过 `WHERE` 过滤出 `rank_in_course = 1` 的行。
-3. 可选：你可以和 `students` 以及 `courses` 再 JOIN 一下把可读的姓名和课名拉出来。
+#### 注意一：执行顺序处于最末端
 
-*(这道题就是企业中大名鼎鼎的“求组内 Top N 数据”的标准解法！)*
+窗口函数的计算发生在 `WHERE`, `GROUP BY`, `HAVING` 全部执行完毕之后，仅仅在最终返回给 `SELECT` 显示之前！
+
+```text
+SQL 执行顺序：
+FROM → WHERE → GROUP BY → HAVING → 窗口函数 → SELECT → ORDER BY → LIMIT
+```
+
+所以窗口函数看到的数据，是已经被 `WHERE` 过滤、被 `GROUP BY` 聚合之后的数据。
+
+#### 注意二：巨大的坑——绝不能把窗口函数写在 WHERE 里！！
+
+因为上面这一条规则，**你绝不能把窗口函数写在 `WHERE` 子句里过滤数据！！**
+
+```sql
+-- 错误！！WHERE 比窗口函数先执行，不认识 ROW_NUMBER()
+SELECT *
+FROM enrollments
+WHERE ROW_NUMBER() OVER (PARTITION BY course_id ORDER BY score DESC) = 1;
+```
+
+数据库会直接报错。
+
+正确的做法是：**必须把窗口函数包在一个 CTE 或子查询里算好并起了别名，然后在外层通过 WHERE 去过滤。**
+
+```sql
+-- 正确：先在 CTE 里算好排名，再在外层过滤
+WITH ranked AS (
+    SELECT
+        student_id, course_id, score,
+        ROW_NUMBER() OVER (PARTITION BY course_id ORDER BY score DESC) AS rn
+    FROM enrollments
+    WHERE score IS NOT NULL
+)
+SELECT * FROM ranked WHERE rn = 1;
+```
+
+> 这是面试和实战的必考题，务必刻在脑子里。
+
+#### 注意三：PARTITION BY 和 GROUP BY 的区别
+
+| | GROUP BY | PARTITION BY（窗口函数） |
+|---|---|---|
+| 结果行数 | 折叠，每组一行 | 不折叠，原行数不变 |
+| 用途 | 聚合汇总 | 给每行附加聚合/排名信息 |
+| 能否同时显示明细 | 不能 | 能 |
+
+简单记：
+
+```text
+GROUP BY     →  把数据“压缩”成汇总行
+PARTITION BY →  把数据“分区”，但每行都保留，各自在区内计算
+```
+
+#### 注意四：排名函数三兄弟别用错
+
+- 需要**强制去重编号**（比如取每个用户最新一条记录）→ 用 `ROW_NUMBER()`
+- 需要**标准考试排名**（并列第一后下一个是第三）→ 用 `RANK()`
+- 需要**密集排名**（并列第一后下一个还是第二）→ 用 `DENSE_RANK()`
+
+用错了结果会差很多，尤其是有并列数据的时候。
+
+#### 注意五：窗口帧（ROWS BETWEEN）与累计求和的关系
+
+很多初学者疑惑：为什么 `SUM(score) OVER (ORDER BY date)` 会自动累计？
+
+因为当你写了 `ORDER BY` 但没写窗口帧时，默认的窗口帧是：
+
+```text
+RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+```
+
+也就是“从分区第一行到当前行”，所以 SUM 自然就是累计的。
+
+如果你想要的是“整个分区的总和”而不是累计，那就不要写 `ORDER BY`：
+
+```sql
+-- 整个分区的总和（每行都显示同一个总数）
+SUM(score) OVER (PARTITION BY course_id)
+
+-- 从第一行累计到当前行
+SUM(score) OVER (PARTITION BY course_id ORDER BY enrolled_at)
+```
+
+两者结果完全不同，别搞混。
+
+#### 注意六：LAG/LEAD 的第一行/最后一行为 NULL
+
+`LAG()` 对分区第一行返回 `NULL`（因为前面没有行了），`LEAD()` 对分区最后一行返回 `NULL`。
+
+这不是错误，是正常行为。算环比时第一行增长率为 `NULL` 是合理的，可以用 `COALESCE` 处理成 0 或保留 NULL。
+
+---
+
+**随堂练习 66：实战 - 保留明细的同时算平均分**
+
+查询 `enrollments` 表中的所有选课记录，输出 `student_id`, `course_id`, `score`，同时新增一列 `course_avg`，显示**该门课的整体平均分**（即同一门课的所有学生共享同一个平均分），以便对比知道这个学生有没有拖后腿。
+
+注意：不能用 `GROUP BY`，因为那样会把多行压缩成一行，丢失学生明细。你需要一种"既保留原始明细行，又能计算分组聚合值"的语法。
+
+---
+
+**随堂练习 67：实战 - 组内排名**
+
+查询 `enrollments` 表，输出 `student_id`, `course_id`, `score`，并新增一列 `rank_in_course`，表示**该学生在自己这门课里的成绩名次**（按成绩从高到低，同分也强行分出先后）。排除没有成绩（`score IS NULL`）的记录。
+
+（提示：需要在每个 `course_id` 分组内部按 `score` 排序编号，这正是排名类窗口函数的典型场景。）
+
+---
+
+**随堂练习 68：进阶综合挑战（组内 Top 1 筛选）**
+
+领导要求：找出”所有课程中，每门课成绩排名第 1 的选课记录”，输出 `student_name`, `course_name`, `score`。
+
+注意：排名计算不能直接写在 `WHERE` 里过滤，需要先把排名算好并起别名，然后在外层查询中过滤。（这是企业中大名鼎鼎的”求组内 Top N 数据”的标准解法！）
+
+---
+
+**随堂练习 69：排名三兄弟对比实验**
+
+要体会三者的区别，需要有同分且至少 3 条记录。请先准备数据：
+1. 给 Frank 增加一条选课记录：选 Database Systems（`course_id = 1`），成绩 84。（先确认 Frank 的 `student_id`，注意不要和已有选课记录冲突。）
+2. 把 Carol 的 Database Systems 成绩（目前是 84）更新成 91，这样这门课就有 Alice(91)、Carol(91)、Frank(84) 三条记录，其中两人并列第一。
+
+然后查询 `enrollments` 表中 `course_id = 1` 这门课的成绩，输出 `student_id`, `score`，并额外产生三列排名，三列都按 `score` 从高到低排名：
+- 第一列 `rn`：强制连续编号，同分也强行分出先后
+- 第二列 `rk`：标准考试排名，并列第一后下一个名次跳号
+- 第三列 `dr`：密集排名，并列第一后下一个名次不跳号
+
+排除 `score IS NULL` 的记录。
+
+观察：Alice 和 Carol 同为 91 分时，三种排名给 Frank 的编号分别是多少？思考各自的适用场景。
+
+> 实验完可以把新增的选课记录删掉、Carol 的成绩改回 84，或者保留数据供后续练习使用。
+
+**随堂练习 70：计算成绩环比变化**
+
+学校想观察每个学生的”成绩进步趋势”。查询 `enrollments` 表，输出：
+- `student_id`
+- `course_id`
+- `score`
+- `prev_score`：该学生**上一门课**的成绩（按 `course_id` 升序排列）
+- `score_diff`：本次成绩减去上一次成绩，正数表示进步，负数表示退步
+
+注意：要按学生分开比较（同一个学生的不同课程之间比较），每个学生的第一门课没有”上一门”，`prev_score` 为 `NULL` 是正常的。排除 `score IS NULL` 的记录。
+
+---
+
+**随堂练习 71：累计求和与移动平均**
+
+假设你需要分析每日销售趋势。请先创建一张 `daily_sales` 表，包含 `sale_date`（日期类型）和 `amount`（数值类型，当日销售额）两列，并插入 5-7 行连续日期的测试数据。
+
+然后写一条查询，输出：
+- `sale_date`
+- `amount`（当日销售额）
+- `cumulative_amount`：从第一天到当天的**累计销售额**
+- `moving_avg_3d`：**近 3 日移动平均**（当天 + 前两天的平均，不足 3 天的有几天算几天）
+
+思考：为什么累计求和不用额外指定窗口范围也能自动累计？
 
 ---
 
@@ -3223,7 +4432,7 @@ FROM sales;
 
 ## 终极综合挑战：一锤定音
 
-**随堂练习 65：全方位实战终极报表**
+**随堂练习 72：全方位实战终极报表**
 
 考验你是否真正通透的时候到了！这是一道包含 80% SQL 核心思想的报表统计题。
 
@@ -3242,7 +4451,7 @@ FROM sales;
   - 由于包含了没选课的人，有的人平均分是 NULL。你需要保证**有真实成绩的人排在前面，NULL 值统统沉淀到列表最后面！**
   - 次要原则：如果两个人的平均成绩完全一样（或者同为 NULL），则继续按照学生姓名首字母**升序 (ASC)** 排列。
 
-*(提示：你必须慎重思考该从哪张表起手，使用 INNER 还是 LEFT JOIN？如何确保 `COUNT()` 对于没选课的人不会虚报为 1？如何在排序末尾加上 `NULLS LAST` 解决空值置顶问题？分组字段该填全哪些列？请自己构思完整 SQL！)*
+*(提示：慎重思考该从哪张表起手，用 INNER 还是 LEFT JOIN？如何确保 COUNT() 对于没选课的人不会虚报为 1？平均分是 NULL 的人如何让他们排在列表最后？分组字段该填全哪些列？请自己构思完整 SQL！)*
 
 ---
 
@@ -3263,4 +4472,4 @@ FROM sales;
 ```
 
 不要等整章结束才做题。
-当你把这 56 道题（含附加题）所涉及的核心骨架彻底刻进 DNA，以后再去学复杂的企业级性能优化或者特定的数据库方言，就会像顺水推舟一样简单。祝你早日攻克 SQL！
+当你把这 71 道题（含附加题）所涉及的核心骨架彻底刻进 DNA，以后再去学复杂的企业级性能优化或者特定的数据库方言，就会像顺水推舟一样简单。祝你早日攻克 SQL！
